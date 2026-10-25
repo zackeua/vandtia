@@ -1,9 +1,11 @@
-//! Game engine and deterministic simulator for Vändtia.
+//! Game engine for Vändtia.
 //!
 //! The engine uses these rule assumptions: 2 resets the minimum rank, 10 burns
 //! the pile, and four consecutive cards of the same rank burn the pile. A burn
 //! lets that player take another turn. Players refill their hands to three
 //! cards while the draw pile lasts.
+
+pub mod simulator;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Rank {
@@ -47,6 +49,7 @@ pub enum PlayerPhase {
 pub struct TurnOutcome {
     pub played: Option<Card>,
     pub burned: bool,
+    pub extra_turn: bool,
     pub picked_up: usize,
     pub winner: Option<usize>,
 }
@@ -59,7 +62,6 @@ pub enum MoveError {
     IllegalPlay,
     EmptyPile,
     GameOver,
-    SimulationLimitReached,
 }
 
 impl std::fmt::Display for MoveError {
@@ -71,7 +73,6 @@ impl std::fmt::Display for MoveError {
             Self::IllegalPlay => "card is lower than the current minimum",
             Self::EmptyPile => "there is no pile to pick up",
             Self::GameOver => "the game is already over",
-            Self::SimulationLimitReached => "simulation exceeded the per-game turn limit",
         };
         f.write_str(message)
     }
@@ -193,13 +194,30 @@ impl Game {
         self.players.get(player).map(|p| p.face_up.as_slice())
     }
 
+    pub fn face_down_count(&self, player: usize) -> Option<usize> {
+        self.players.get(player).map(|p| p.face_down.len())
+    }
+
     /// Returns legal hand-card indices for the player whose turn it is.
     pub fn legal_hand_indices(&self) -> Vec<usize> {
-        if self.winner.is_some() || self.players[self.current_player].phase() != PlayerPhase::Hand {
+        self.legal_indices_for_phase(PlayerPhase::Hand)
+    }
+
+    /// Returns legal face-up card indices for the player whose turn it is.
+    pub fn legal_face_up_indices(&self) -> Vec<usize> {
+        self.legal_indices_for_phase(PlayerPhase::FaceUp)
+    }
+
+    fn legal_indices_for_phase(&self, phase: PlayerPhase) -> Vec<usize> {
+        if self.winner.is_some() || self.players[self.current_player].phase() != phase {
             return Vec::new();
         }
-        self.players[self.current_player]
-            .hand
+        let cards = match phase {
+            PlayerPhase::Hand => &self.players[self.current_player].hand,
+            PlayerPhase::FaceUp => &self.players[self.current_player].face_up,
+            PlayerPhase::FaceDown => return Vec::new(),
+        };
+        cards
             .iter()
             .enumerate()
             .filter_map(|(i, card)| self.is_legal(*card).then_some(i))
@@ -250,9 +268,21 @@ impl Game {
         let card_index = self
             .rng
             .index(self.players[self.current_player].face_down.len());
+        self.play_face_down_at(card_index)
+    }
+
+    /// Reveals and plays the selected blind card after hand and open cards are gone.
+    pub fn play_face_down_at(&mut self, index: usize) -> Result<TurnOutcome, MoveError> {
+        self.ensure_in_progress()?;
+        if self.players[self.current_player].phase() != PlayerPhase::FaceDown {
+            return Err(MoveError::WrongPhase);
+        }
         let card = self.players[self.current_player]
             .face_down
-            .remove(card_index);
+            .get(index)
+            .copied()
+            .ok_or(MoveError::InvalidCardIndex)?;
+        self.players[self.current_player].face_down.remove(index);
         if !self.is_legal(card) {
             self.pile.push(card);
             let picked_up = self.pick_up_current_pile();
@@ -260,6 +290,7 @@ impl Game {
             return Ok(TurnOutcome {
                 played: Some(card),
                 burned: false,
+                extra_turn: false,
                 picked_up,
                 winner: None,
             });
@@ -278,6 +309,7 @@ impl Game {
         Ok(TurnOutcome {
             played: None,
             burned: false,
+            extra_turn: false,
             picked_up,
             winner: None,
         })
@@ -311,11 +343,12 @@ impl Game {
                 .iter()
                 .all(|pile_card| pile_card.rank == card.rank);
         let burned = card.rank == Rank::Ten || four_of_a_kind;
+        let extra_turn = burned || card.rank == Rank::Two;
         if burned {
             self.pile.clear();
         }
 
-        if self.draw_pile.len() > 0 {
+        if !self.draw_pile.is_empty() {
             while self.players[player].hand.len() < 3 && !self.draw_pile.is_empty() {
                 self.players[player]
                     .hand
@@ -325,13 +358,14 @@ impl Game {
 
         if !self.players[player].has_cards() {
             self.winner = Some(player);
-        } else if !burned {
+        } else if !extra_turn {
             self.advance_turn();
         }
 
         TurnOutcome {
             played: Some(card),
             burned,
+            extra_turn,
             picked_up: 0,
             winner: self.winner,
         }
@@ -348,93 +382,6 @@ impl Game {
     fn advance_turn(&mut self) {
         self.current_player = (self.current_player + 1) % self.players.len();
     }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SimulationStats {
-    pub games: usize,
-    pub wins: Vec<usize>,
-    pub total_turns: usize,
-}
-
-impl SimulationStats {
-    pub fn average_turns(&self) -> f64 {
-        if self.games == 0 {
-            0.0
-        } else {
-            self.total_turns as f64 / self.games as f64
-        }
-    }
-}
-
-/// Simulates games using a simple strategy: play the lowest legal card, or
-/// pick up the pile if no hand/open card can be played. Blind cards are random.
-pub fn simulate(
-    player_count: usize,
-    games: usize,
-    seed: u64,
-) -> Result<SimulationStats, MoveError> {
-    if !(2..=5).contains(&player_count) {
-        return Err(MoveError::InvalidPlayerCount);
-    }
-
-    let mut stats = SimulationStats {
-        games,
-        wins: vec![0; player_count],
-        total_turns: 0,
-    };
-
-    for game_number in 0..games {
-        let game_seed = seed.wrapping_add(game_number as u64);
-        let mut game = Game::new(player_count, game_seed)?;
-        let mut turns = 0;
-        while game.winner().is_none() {
-            if turns >= 100_000 {
-                return Err(MoveError::SimulationLimitReached);
-            }
-            let player = game.current_player();
-            match game.player_phase(player).expect("current player exists") {
-                PlayerPhase::Hand => {
-                    if let Some(index) = lowest_legal_index(game.hand(player).unwrap(), &game) {
-                        game.play_hand(index)?;
-                    } else if !game.pile().is_empty() {
-                        game.pick_up_pile()?;
-                    } else {
-                        unreachable!("an empty pile permits every hand card");
-                    }
-                }
-                PlayerPhase::FaceUp => {
-                    let cards = game.face_up(player).expect("current player exists");
-                    if let Some(index) = lowest_legal_index(cards, &game) {
-                        game.play_face_up(index)?;
-                    } else if !game.pile().is_empty() {
-                        game.pick_up_pile()?;
-                    } else {
-                        unreachable!("an empty pile permits every open card");
-                    }
-                }
-                PlayerPhase::FaceDown => {
-                    game.play_face_down()?;
-                }
-            }
-            turns += 1;
-        }
-        if let Some(winner) = game.winner() {
-            stats.wins[winner] += 1;
-        }
-        stats.total_turns += turns;
-    }
-
-    Ok(stats)
-}
-
-fn lowest_legal_index(cards: &[Card], game: &Game) -> Option<usize> {
-    cards
-        .iter()
-        .enumerate()
-        .filter(|(_, card)| game.is_legal(**card))
-        .min_by_key(|(_, card)| card.rank)
-        .map(|(index, _)| index)
 }
 
 fn fresh_deck() -> Vec<Card> {
@@ -520,8 +467,27 @@ mod tests {
         game.players[0].hand[0] = card(Rank::Ten, Suit::Hearts);
         let outcome = game.play_hand(0).unwrap();
         assert!(outcome.burned);
+        assert!(outcome.extra_turn);
         assert!(game.pile().is_empty());
         assert_eq!(game.current_player(), 0);
+    }
+
+    #[test]
+    fn playing_two_keeps_the_turn_and_next_card_is_played_by_same_player() {
+        let mut game = game_with_pile(vec![card(Rank::Five, Suit::Clubs)]);
+        game.players[0].hand[0] = card(Rank::Two, Suit::Hearts);
+        game.players[0].hand[1] = card(Rank::Three, Suit::Diamonds);
+
+        let two_outcome = game.play_hand(0).unwrap();
+        assert!(!two_outcome.burned);
+        assert!(two_outcome.extra_turn);
+        assert_eq!(game.current_player(), 0);
+        assert!(game.legal_hand_indices().contains(&0));
+
+        let next_outcome = game.play_hand(0).unwrap();
+        assert_eq!(next_outcome.played, Some(card(Rank::Three, Suit::Diamonds)));
+        assert!(!next_outcome.extra_turn);
+        assert_eq!(game.current_player(), 1);
     }
 
     #[test]
@@ -549,9 +515,20 @@ mod tests {
     }
 
     #[test]
-    fn simulation_records_a_winner_for_each_game() {
-        let stats = simulate(3, 10, 42).unwrap();
-        assert_eq!(stats.wins.iter().sum::<usize>(), 10);
-        assert!(stats.average_turns() > 0.0);
+    fn selected_blind_card_is_revealed_and_played() {
+        let mut game = game_with_pile(vec![card(Rank::Five, Suit::Clubs)]);
+        game.players[0].hand.clear();
+        game.players[0].face_up.clear();
+        game.players[0].face_down = vec![
+            card(Rank::Six, Suit::Hearts),
+            card(Rank::Seven, Suit::Spades),
+        ];
+
+        let outcome = game.play_face_down_at(1).unwrap();
+
+        assert_eq!(outcome.played, Some(card(Rank::Seven, Suit::Spades)));
+        assert!(!outcome.burned);
+        assert!(!outcome.extra_turn);
+        assert_eq!(game.face_down_count(0), Some(1));
     }
 }
