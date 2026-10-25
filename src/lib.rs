@@ -48,6 +48,7 @@ pub enum PlayerPhase {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TurnOutcome {
     pub played: Option<Card>,
+    pub played_cards: Vec<Card>,
     pub drawn: Option<Card>,
     pub burned: bool,
     pub extra_turn: bool,
@@ -63,6 +64,7 @@ pub enum MoveError {
     IllegalPlay,
     EmptyPile,
     EmptyDrawPile,
+    EmptySelection,
     GameOver,
 }
 
@@ -75,6 +77,7 @@ impl std::fmt::Display for MoveError {
             Self::IllegalPlay => "card is lower than the current minimum",
             Self::EmptyPile => "there is no pile to pick up",
             Self::EmptyDrawPile => "the draw pile is empty",
+            Self::EmptySelection => "select at least one card",
             Self::GameOver => "the game is already over",
         };
         f.write_str(message)
@@ -233,19 +236,22 @@ impl Game {
 
     /// Plays a card from the current player's hand.
     pub fn play_hand(&mut self, index: usize) -> Result<TurnOutcome, MoveError> {
+        self.play_hand_indices(&[index])
+    }
+
+    /// Plays one or more cards of the same rank from the current player's hand.
+    pub fn play_hand_indices(&mut self, indices: &[usize]) -> Result<TurnOutcome, MoveError> {
         self.ensure_in_progress()?;
         if self.players[self.current_player].phase() != PlayerPhase::Hand {
             return Err(MoveError::WrongPhase);
         }
-        let card = *self.players[self.current_player]
-            .hand
-            .get(index)
-            .ok_or(MoveError::InvalidCardIndex)?;
-        if !self.is_legal(card) {
-            return Err(MoveError::IllegalPlay);
+        let cards = self.validate_selection(indices, &self.players[self.current_player].hand)?;
+        let mut removal_indices = indices.to_vec();
+        removal_indices.sort_unstable_by(|a, b| b.cmp(a));
+        for index in removal_indices {
+            self.players[self.current_player].hand.remove(index);
         }
-        self.players[self.current_player].hand.remove(index);
-        Ok(self.finish_play(card))
+        Ok(self.finish_play(cards))
     }
 
     /// Draws one card during the hand phase and plays it if legal.
@@ -258,7 +264,7 @@ impl Game {
         let card = self.draw_pile.pop().ok_or(MoveError::EmptyDrawPile)?;
         let player = self.current_player;
         if self.is_legal(card) {
-            let mut outcome = self.finish_play(card);
+            let mut outcome = self.finish_play(vec![card]);
             outcome.drawn = Some(card);
             Ok(outcome)
         } else {
@@ -267,6 +273,7 @@ impl Game {
             self.advance_turn();
             Ok(TurnOutcome {
                 played: None,
+                played_cards: Vec::new(),
                 drawn: Some(card),
                 burned: false,
                 extra_turn: false,
@@ -278,19 +285,47 @@ impl Game {
 
     /// Plays a selected open card after the player's hand is empty.
     pub fn play_face_up(&mut self, index: usize) -> Result<TurnOutcome, MoveError> {
+        self.play_face_up_indices(&[index])
+    }
+
+    /// Plays one or more cards of the same rank from the current player's open cards.
+    pub fn play_face_up_indices(&mut self, indices: &[usize]) -> Result<TurnOutcome, MoveError> {
         self.ensure_in_progress()?;
         if self.players[self.current_player].phase() != PlayerPhase::FaceUp {
             return Err(MoveError::WrongPhase);
         }
-        let card = *self.players[self.current_player]
-            .face_up
-            .get(index)
-            .ok_or(MoveError::InvalidCardIndex)?;
-        if !self.is_legal(card) {
-            return Err(MoveError::IllegalPlay);
+        let cards = self.validate_selection(indices, &self.players[self.current_player].face_up)?;
+        let mut removal_indices = indices.to_vec();
+        removal_indices.sort_unstable_by(|a, b| b.cmp(a));
+        for index in removal_indices {
+            self.players[self.current_player].face_up.remove(index);
         }
-        self.players[self.current_player].face_up.remove(index);
-        Ok(self.finish_play(card))
+        Ok(self.finish_play(cards))
+    }
+
+    fn validate_selection(
+        &self,
+        indices: &[usize],
+        source: &[Card],
+    ) -> Result<Vec<Card>, MoveError> {
+        if indices.is_empty() {
+            return Err(MoveError::EmptySelection);
+        }
+        let mut cards = Vec::with_capacity(indices.len());
+        for (position, index) in indices.iter().copied().enumerate() {
+            let card = *source.get(index).ok_or(MoveError::InvalidCardIndex)?;
+            if indices[..position].contains(&index) {
+                return Err(MoveError::InvalidCardIndex);
+            }
+            if card.rank != source[indices[0]].rank {
+                return Err(MoveError::IllegalPlay);
+            }
+            if !self.is_legal(card) {
+                return Err(MoveError::IllegalPlay);
+            }
+            cards.push(card);
+        }
+        Ok(cards)
     }
 
     /// Reveals and plays one blind card after hand and open cards are gone.
@@ -324,6 +359,7 @@ impl Game {
             self.advance_turn();
             return Ok(TurnOutcome {
                 played: Some(card),
+                played_cards: Vec::new(),
                 drawn: None,
                 burned: false,
                 extra_turn: false,
@@ -331,7 +367,7 @@ impl Game {
                 winner: None,
             });
         }
-        Ok(self.finish_play(card))
+        Ok(self.finish_play(vec![card]))
     }
 
     /// Picks up the pile and ends the current player's turn.
@@ -344,6 +380,7 @@ impl Game {
         self.advance_turn();
         Ok(TurnOutcome {
             played: None,
+            played_cards: Vec::new(),
             drawn: None,
             burned: false,
             extra_turn: false,
@@ -371,16 +408,17 @@ impl Game {
         }
     }
 
-    fn finish_play(&mut self, card: Card) -> TurnOutcome {
+    fn finish_play(&mut self, cards: Vec<Card>) -> TurnOutcome {
         let player = self.current_player;
-        self.pile.push(card);
+        let rank = cards[0].rank;
+        self.pile.extend(cards.iter().copied());
 
         let four_of_a_kind = self.pile.len() >= 4
             && self.pile[self.pile.len() - 4..]
                 .iter()
-                .all(|pile_card| pile_card.rank == card.rank);
-        let burned = card.rank == Rank::Ten || four_of_a_kind;
-        let extra_turn = burned || card.rank == Rank::Two;
+                .all(|pile_card| pile_card.rank == rank);
+        let burned = rank == Rank::Ten || four_of_a_kind;
+        let extra_turn = burned || rank == Rank::Two;
         if burned {
             self.pile.clear();
         }
@@ -400,7 +438,8 @@ impl Game {
         }
 
         TurnOutcome {
-            played: Some(card),
+            played: cards.first().copied(),
+            played_cards: cards,
             drawn: None,
             burned,
             extra_turn,
@@ -526,6 +565,56 @@ mod tests {
         assert_eq!(next_outcome.played, Some(card(Rank::Three, Suit::Diamonds)));
         assert!(!next_outcome.extra_turn);
         assert_eq!(game.current_player(), 1);
+    }
+
+    #[test]
+    fn multiple_cards_of_the_same_rank_are_played_together() {
+        let mut game = game_with_pile(vec![card(Rank::Seven, Suit::Clubs)]);
+        game.players[0].hand[0] = card(Rank::Eight, Suit::Hearts);
+        game.players[0].hand[1] = card(Rank::Eight, Suit::Spades);
+
+        let outcome = game.play_hand_indices(&[0, 1]).unwrap();
+
+        assert_eq!(
+            outcome.played_cards,
+            vec![
+                card(Rank::Eight, Suit::Hearts),
+                card(Rank::Eight, Suit::Spades)
+            ]
+        );
+        assert_eq!(game.pile().len(), 3);
+        assert_eq!(game.current_player(), 1);
+    }
+
+    #[test]
+    fn playing_two_matching_cards_can_complete_four_of_a_kind() {
+        let mut game = game_with_pile(vec![
+            card(Rank::Eight, Suit::Clubs),
+            card(Rank::Eight, Suit::Diamonds),
+        ]);
+        game.players[0].hand[0] = card(Rank::Eight, Suit::Hearts);
+        game.players[0].hand[1] = card(Rank::Eight, Suit::Spades);
+
+        let outcome = game.play_hand_indices(&[0, 1]).unwrap();
+
+        assert!(outcome.burned);
+        assert!(outcome.extra_turn);
+        assert!(game.pile().is_empty());
+        assert_eq!(game.current_player(), 0);
+    }
+
+    #[test]
+    fn mixed_rank_selection_is_rejected_without_changing_hand_or_pile() {
+        let mut game = game_with_pile(vec![card(Rank::Seven, Suit::Clubs)]);
+        game.players[0].hand[0] = card(Rank::Eight, Suit::Hearts);
+        game.players[0].hand[1] = card(Rank::Nine, Suit::Spades);
+        let original_hand = game.hand(0).unwrap().to_vec();
+        let original_pile = game.pile().to_vec();
+
+        assert_eq!(game.play_hand_indices(&[0, 1]), Err(MoveError::IllegalPlay));
+        assert_eq!(game.hand(0).unwrap(), original_hand);
+        assert_eq!(game.pile(), original_pile);
+        assert_eq!(game.current_player(), 0);
     }
 
     #[test]

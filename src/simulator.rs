@@ -62,16 +62,18 @@ pub fn play_computer_turn(game: &mut Game) -> Result<TurnOutcome, MoveError> {
     match game.player_phase(player).expect("current player exists") {
         PlayerPhase::Hand => {
             let hand = game.hand(player).expect("current player exists");
-            if let Some(index) = lowest_legal_index(hand, &game.legal_hand_indices()) {
-                game.play_hand(index)
+            let legal = game.legal_hand_indices();
+            if let Some(indices) = lowest_legal_indices(hand, &legal) {
+                game.play_hand_indices(&indices)
             } else {
                 game.pick_up_pile()
             }
         }
         PlayerPhase::FaceUp => {
             let face_up = game.face_up(player).expect("current player exists");
-            if let Some(index) = lowest_legal_index(face_up, &game.legal_face_up_indices()) {
-                game.play_face_up(index)
+            let legal = game.legal_face_up_indices();
+            if let Some(indices) = lowest_legal_indices(face_up, &legal) {
+                game.play_face_up_indices(&indices)
             } else {
                 game.pick_up_pile()
             }
@@ -116,11 +118,15 @@ pub fn simulate(
     Ok(stats)
 }
 
-fn lowest_legal_index(cards: &[Card], legal_indices: &[usize]) -> Option<usize> {
-    legal_indices
-        .iter()
-        .copied()
-        .min_by_key(|index| cards[*index].rank)
+fn lowest_legal_indices(cards: &[Card], legal_indices: &[usize]) -> Option<Vec<usize>> {
+    let rank = legal_indices.iter().map(|index| cards[*index].rank).min()?;
+    Some(
+        legal_indices
+            .iter()
+            .copied()
+            .filter(|index| cards[*index].rank == rank)
+            .collect(),
+    )
 }
 
 #[cfg(test)]

@@ -81,8 +81,14 @@ fn play_game(players: usize, seed: u64) -> Result<(), Box<dyn std::error::Error>
             outcome
         } else {
             let outcome = play_computer_turn(&mut game)?;
-            if let Some(card) = outcome.played {
-                println!("Dator {} spelar {}.", player + 1, format_card(card));
+            if !outcome.played_cards.is_empty() {
+                println!(
+                    "Dator {} spelar {}.",
+                    player + 1,
+                    format_cards(&outcome.played_cards)
+                );
+            } else if let Some(card) = outcome.played {
+                println!("Dator {} vänder {}.", player + 1, format_card(card));
             } else {
                 println!("Dator {} plockar upp högen.", player + 1);
             }
@@ -178,12 +184,12 @@ fn human_turn(game: &mut Game) -> Result<Option<TurnOutcome>, Box<dyn std::error
     let phase = game.player_phase(player).expect("current player exists");
     let (prompt, card_count, legal_indices) = match phase {
         PlayerPhase::Hand => (
-            "Välj ett kortnummer",
+            "Välj kortnummer (separera flera av samma valör med komma)",
             game.hand(player).expect("player exists").len(),
             game.legal_hand_indices(),
         ),
         PlayerPhase::FaceUp => (
-            "Välj ett kortnummer",
+            "Välj kortnummer (separera flera av samma valör med komma)",
             game.face_up(player).expect("player exists").len(),
             game.legal_face_up_indices(),
         ),
@@ -233,32 +239,69 @@ fn human_turn(game: &mut Game) -> Result<Option<TurnOutcome>, Box<dyn std::error
             }
             return Ok(Some(outcome));
         }
-        let Ok(number) = input.parse::<usize>() else {
-            println!("Välj ett av alternativen som visas.");
+        let Some(indices) = parse_card_indices(&input, card_count) else {
+            println!("Ange kortnummer, separerade med kommatecken om du vill spela flera.");
             continue;
         };
-        if number == 0 || number > card_count {
-            println!("Kortnumret måste vara mellan 1 och {card_count}.");
+        if indices
+            .iter()
+            .enumerate()
+            .any(|(i, index)| indices[..i].contains(index))
+        {
+            println!("Samma kortnummer kan inte väljas flera gånger.");
             continue;
         }
-
-        let index = number - 1;
+        if indices.len() > 1 && phase == PlayerPhase::FaceDown {
+            println!("Blinda kort vänds ett i taget.");
+            continue;
+        }
+        if indices.iter().any(|index| !legal_indices.contains(index))
+            && phase != PlayerPhase::FaceDown
+        {
+            println!("Ett eller flera av korten kan inte spelas nu.");
+            continue;
+        }
+        let cards = match phase {
+            PlayerPhase::Hand => game.hand(player).expect("player exists"),
+            PlayerPhase::FaceUp => game.face_up(player).expect("player exists"),
+            PlayerPhase::FaceDown => &[],
+        };
+        if indices.len() > 1
+            && indices
+                .iter()
+                .any(|index| cards[*index].rank != cards[indices[0]].rank)
+        {
+            println!("Du kan bara spela flera kort av samma valör.");
+            continue;
+        }
         let outcome = match phase {
-            PlayerPhase::Hand if legal_indices.contains(&index) => game.play_hand(index),
-            PlayerPhase::FaceUp if legal_indices.contains(&index) => game.play_face_up(index),
-            PlayerPhase::FaceDown => game.play_face_down_at(index),
-            _ => {
-                println!("Det kortet kan inte spelas nu.");
-                continue;
-            }
+            PlayerPhase::Hand => game.play_hand_indices(&indices),
+            PlayerPhase::FaceUp => game.play_face_up_indices(&indices),
+            PlayerPhase::FaceDown => game.play_face_down_at(indices[0]),
         }?;
         if phase == PlayerPhase::FaceDown
             && let Some(card) = outcome.played
         {
             println!("Du vände {}.", format_card(card));
+        } else if outcome.played_cards.len() > 1 {
+            println!("Du spelar {}.", format_cards(&outcome.played_cards));
         }
         return Ok(Some(outcome));
     }
+}
+
+fn parse_card_indices(input: &str, card_count: usize) -> Option<Vec<usize>> {
+    let numbers: Vec<usize> = input
+        .split(',')
+        .map(|part| part.trim().parse::<usize>().ok())
+        .collect::<Option<Vec<_>>>()?;
+    if numbers
+        .iter()
+        .any(|number| *number == 0 || *number > card_count)
+    {
+        return None;
+    }
+    Some(numbers.into_iter().map(|number| number - 1).collect())
 }
 
 fn prompt_line(prompt: &str) -> io::Result<Option<String>> {
@@ -305,4 +348,34 @@ fn format_card(card: Card) -> String {
         vandtia::Suit::Spades => "spader",
     };
     format!("{rank} i {suit}")
+}
+
+fn format_cards(cards: &[Card]) -> String {
+    cards
+        .iter()
+        .map(|card| format_card(*card))
+        .collect::<Vec<_>>()
+        .join(" och ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_card_indices;
+
+    #[test]
+    fn accepts_first_and_last_one_based_card_numbers() {
+        assert_eq!(parse_card_indices("1", 3), Some(vec![0]));
+        assert_eq!(parse_card_indices("3", 3), Some(vec![2]));
+    }
+
+    #[test]
+    fn accepts_a_list_of_card_numbers() {
+        assert_eq!(parse_card_indices("1, 3", 3), Some(vec![0, 2]));
+    }
+
+    #[test]
+    fn rejects_card_numbers_outside_the_hand() {
+        assert_eq!(parse_card_indices("0", 3), None);
+        assert_eq!(parse_card_indices("4", 3), None);
+    }
 }
