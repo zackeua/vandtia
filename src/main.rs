@@ -102,6 +102,7 @@ fn play_game(players: usize, seed: u64) -> Result<(), Box<dyn std::error::Error>
 }
 
 fn display_table(game: &Game, player: usize) {
+    println!("Draghög: {} kort kvar.", game.draw_pile_size());
     let top = game.pile().last().copied();
     match top {
         Some(card) => println!(
@@ -111,6 +112,26 @@ fn display_table(game: &Game, player: usize) {
             player + 1
         ),
         None => println!("Högen är tom. Drag: spelare {}.", player + 1),
+    }
+
+    println!("Öppna kort och handkort:");
+    for seat in 0..game.player_count() {
+        let open_cards = game.face_up(seat).expect("player exists");
+        let open_cards = if open_cards.is_empty() {
+            "inga".to_owned()
+        } else {
+            open_cards
+                .iter()
+                .map(|card| format_card(*card))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        println!(
+            "  Spelare {}: {} kort på handen; öppna: {}",
+            seat + 1,
+            game.hand_count(seat).expect("player exists"),
+            open_cards
+        );
     }
 
     if player != 0 {
@@ -174,19 +195,25 @@ fn human_turn(game: &mut Game) -> Result<Option<TurnOutcome>, Box<dyn std::error
     };
 
     loop {
-        if phase != PlayerPhase::FaceDown && legal_indices.is_empty() {
+        let can_draw = phase == PlayerPhase::Hand && game.draw_pile_size() > 0;
+        if phase != PlayerPhase::FaceDown && legal_indices.is_empty() && !can_draw {
             println!("Du har inget giltigt kort att spela och måste plocka upp högen.");
             return Ok(Some(game.pick_up_pile()?));
         }
 
         let can_pick_up = !game.pile().is_empty() && phase != PlayerPhase::FaceDown;
-        let suffix = if can_pick_up {
-            ", eller p för att plocka upp"
-        } else {
-            ""
-        };
-        let Some(input) = prompt_line(&format!("{prompt} (1-{card_count}{suffix}, q avslutar): "))?
-        else {
+        let mut choices = Vec::new();
+        if !legal_indices.is_empty() || phase == PlayerPhase::FaceDown {
+            choices.push(format!("1-{card_count}"));
+        }
+        if can_draw {
+            choices.push("d för att dra ett kort".to_owned());
+        }
+        if can_pick_up {
+            choices.push("p för att plocka upp".to_owned());
+        }
+        choices.push("q avslutar".to_owned());
+        let Some(input) = prompt_line(&format!("{prompt} ({}): ", choices.join(", ")))? else {
             return Ok(None);
         };
         if input.eq_ignore_ascii_case("q") {
@@ -195,11 +222,19 @@ fn human_turn(game: &mut Game) -> Result<Option<TurnOutcome>, Box<dyn std::error
         if input.eq_ignore_ascii_case("p") && can_pick_up {
             return Ok(Some(game.pick_up_pile()?));
         }
+        if input.eq_ignore_ascii_case("d") && can_draw {
+            let outcome = game.draw_and_play()?;
+            if let Some(card) = outcome.drawn {
+                if outcome.played.is_some() {
+                    println!("Du drar och spelar {}.", format_card(card));
+                } else {
+                    println!("Du drar {}, men kortet kan inte spelas.", format_card(card));
+                }
+            }
+            return Ok(Some(outcome));
+        }
         let Ok(number) = input.parse::<usize>() else {
-            println!(
-                "Ange ett kortnummer{}.",
-                if can_pick_up { " eller p" } else { "" }
-            );
+            println!("Välj ett av alternativen som visas.");
             continue;
         };
         if number == 0 || number > card_count {

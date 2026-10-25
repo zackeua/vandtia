@@ -48,6 +48,7 @@ pub enum PlayerPhase {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TurnOutcome {
     pub played: Option<Card>,
+    pub drawn: Option<Card>,
     pub burned: bool,
     pub extra_turn: bool,
     pub picked_up: usize,
@@ -61,6 +62,7 @@ pub enum MoveError {
     InvalidCardIndex,
     IllegalPlay,
     EmptyPile,
+    EmptyDrawPile,
     GameOver,
 }
 
@@ -72,6 +74,7 @@ impl std::fmt::Display for MoveError {
             Self::InvalidCardIndex => "card index is out of range",
             Self::IllegalPlay => "card is lower than the current minimum",
             Self::EmptyPile => "there is no pile to pick up",
+            Self::EmptyDrawPile => "the draw pile is empty",
             Self::GameOver => "the game is already over",
         };
         f.write_str(message)
@@ -190,6 +193,10 @@ impl Game {
         self.players.get(player).map(|p| p.hand.as_slice())
     }
 
+    pub fn hand_count(&self, player: usize) -> Option<usize> {
+        self.players.get(player).map(|p| p.hand.len())
+    }
+
     pub fn face_up(&self, player: usize) -> Option<&[Card]> {
         self.players.get(player).map(|p| p.face_up.as_slice())
     }
@@ -241,6 +248,34 @@ impl Game {
         Ok(self.finish_play(card))
     }
 
+    /// Draws one card during the hand phase and plays it if legal.
+    /// If the card cannot be played, it is kept and the player picks up the pile.
+    pub fn draw_and_play(&mut self) -> Result<TurnOutcome, MoveError> {
+        self.ensure_in_progress()?;
+        if self.players[self.current_player].phase() != PlayerPhase::Hand {
+            return Err(MoveError::WrongPhase);
+        }
+        let card = self.draw_pile.pop().ok_or(MoveError::EmptyDrawPile)?;
+        let player = self.current_player;
+        if self.is_legal(card) {
+            let mut outcome = self.finish_play(card);
+            outcome.drawn = Some(card);
+            Ok(outcome)
+        } else {
+            self.players[player].hand.push(card);
+            let picked_up = self.pick_up_current_pile();
+            self.advance_turn();
+            Ok(TurnOutcome {
+                played: None,
+                drawn: Some(card),
+                burned: false,
+                extra_turn: false,
+                picked_up,
+                winner: None,
+            })
+        }
+    }
+
     /// Plays a selected open card after the player's hand is empty.
     pub fn play_face_up(&mut self, index: usize) -> Result<TurnOutcome, MoveError> {
         self.ensure_in_progress()?;
@@ -289,6 +324,7 @@ impl Game {
             self.advance_turn();
             return Ok(TurnOutcome {
                 played: Some(card),
+                drawn: None,
                 burned: false,
                 extra_turn: false,
                 picked_up,
@@ -308,6 +344,7 @@ impl Game {
         self.advance_turn();
         Ok(TurnOutcome {
             played: None,
+            drawn: None,
             burned: false,
             extra_turn: false,
             picked_up,
@@ -364,6 +401,7 @@ impl Game {
 
         TurnOutcome {
             played: Some(card),
+            drawn: None,
             burned,
             extra_turn,
             picked_up: 0,
@@ -512,6 +550,45 @@ mod tests {
         assert_eq!(game.play_hand(0), Err(MoveError::IllegalPlay));
         assert_eq!(game.pile(), previous_pile);
         assert_eq!(game.current_player(), 0);
+    }
+
+    #[test]
+    fn drawing_a_legal_card_plays_it_immediately() {
+        let mut game = game_with_pile(vec![card(Rank::King, Suit::Clubs)]);
+        game.draw_pile = vec![card(Rank::Two, Suit::Hearts)];
+
+        let outcome = game.draw_and_play().unwrap();
+
+        assert_eq!(outcome.drawn, Some(card(Rank::Two, Suit::Hearts)));
+        assert_eq!(outcome.played, Some(card(Rank::Two, Suit::Hearts)));
+        assert!(outcome.extra_turn);
+        assert_eq!(game.current_player(), 0);
+        assert_eq!(game.pile().last(), Some(&card(Rank::Two, Suit::Hearts)));
+        assert_eq!(game.draw_pile_size(), 0);
+    }
+
+    #[test]
+    fn drawing_an_illegal_card_keeps_it_and_picks_up_the_pile() {
+        let mut game = game_with_pile(vec![card(Rank::Queen, Suit::Clubs)]);
+        game.draw_pile = vec![card(Rank::Jack, Suit::Hearts)];
+
+        let outcome = game.draw_and_play().unwrap();
+
+        assert_eq!(outcome.drawn, Some(card(Rank::Jack, Suit::Hearts)));
+        assert_eq!(outcome.played, None);
+        assert_eq!(outcome.picked_up, 1);
+        assert!(
+            game.hand(0)
+                .unwrap()
+                .contains(&card(Rank::Jack, Suit::Hearts))
+        );
+        assert!(
+            game.hand(0)
+                .unwrap()
+                .contains(&card(Rank::Queen, Suit::Clubs))
+        );
+        assert!(game.pile().is_empty());
+        assert_eq!(game.current_player(), 1);
     }
 
     #[test]
