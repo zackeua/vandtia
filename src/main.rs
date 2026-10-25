@@ -1,3 +1,4 @@
+mod cli;
 mod tui;
 
 use argparse::{ArgumentParser, Store, StoreTrue};
@@ -5,6 +6,7 @@ use vandtia::simulator::simulate;
 
 fn main() {
     let mut play = false;
+    let mut use_tui = false;
     let mut games = 1_000;
     let mut players = 4;
     let mut seed = 1;
@@ -15,7 +17,12 @@ fn main() {
         parser.refer(&mut play).add_option(
             &["-i", "--play"],
             StoreTrue,
-            "Spela interaktivt i terminalen",
+            "Spela interaktivt med textgränssnittet",
+        );
+        parser.refer(&mut use_tui).add_option(
+            &["--tui"],
+            StoreTrue,
+            "Använd TUI i stället för textgränssnittet (använd med --play)",
         );
         parser.refer(&mut games).add_option(
             &["-n", "--games"],
@@ -33,8 +40,10 @@ fn main() {
         parser.parse_args_or_exit();
     }
 
-    let result = if play {
+    let result = if play && use_tui {
         tui::run(players, seed)
+    } else if play {
+        cli::run(players, seed)
     } else {
         run_simulation(games, players, seed)
     };
