@@ -1,23 +1,37 @@
-use std::env;
+use argparse::{ArgumentParser, Store};
 use vandtia::simulate;
 
 fn main() {
-    if let Err(error) = run() {
+    let mut games = 1_000;
+    let mut players = 4;
+    let mut seed = 1;
+
+    {
+        let mut parser = ArgumentParser::new();
+        parser.set_description("Simulerar partier Vändtia.");
+        parser.refer(&mut games).add_option(
+            &["-n", "--games"],
+            Store,
+            "Antal partier att simulera (standard: 1000)",
+        );
+        parser.refer(&mut players).add_option(
+            &["-p", "--players"],
+            Store,
+            "Antal spelare, 2-5 (standard: 4)",
+        );
+        parser
+            .refer(&mut seed)
+            .add_option(&["-s", "--seed"], Store, "Slumptalsfrö (standard: 1)");
+        parser.parse_args_or_exit();
+    }
+
+    if let Err(error) = run(games, players, seed) {
         eprintln!("Fel: {error}");
         std::process::exit(2);
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let arguments: Vec<String> = env::args().skip(1).collect();
-    if arguments.first().map(String::as_str) != Some("simulate") {
-        println!("Användning: cargo run -- simulate [antal_partier] [antal_spelare] [frö]");
-        return Ok(());
-    }
-
-    let games = parse_argument(&arguments, 1, 1_000)?;
-    let players = parse_argument(&arguments, 2, 4)?;
-    let seed = parse_argument(&arguments, 3, 1)?;
+fn run(games: usize, players: usize, seed: u64) -> Result<(), Box<dyn std::error::Error>> {
     let stats = simulate(players, games, seed)?;
 
     println!(
@@ -29,19 +43,4 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!("Genomsnittligt antal turer: {:.1}", stats.average_turns());
     Ok(())
-}
-
-fn parse_argument<T>(
-    arguments: &[String],
-    index: usize,
-    default: T,
-) -> Result<T, Box<dyn std::error::Error>>
-where
-    T: std::str::FromStr,
-    T::Err: std::error::Error + 'static,
-{
-    arguments
-        .get(index)
-        .map(|value| value.parse().map_err(Into::into))
-        .unwrap_or(Ok(default))
 }
