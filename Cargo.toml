@@ -2,8 +2,29 @@
 name = "vandtia"
 version = "0.1.0"
 edition = "2024"
+default-run = "vandtia"
+
+[features]
+default = []
+graphics = ["dep:macroquad"]
+tui-requirements = ["dep:crossterm", "dep:ratatui"]
 
 [dependencies]
 argparse = "0.2"
-crossterm = "0.28"
-ratatui = "0.29"
+crossterm = { version = "0.28", optional = true }
+ratatui = { version = "0.29", optional = true }
+macroquad = { version = "0.4.16", optional = true }
+
+[[bin]]
+name = "vandtia"
+path = "src/main.rs"
+
+[[bin]]
+name = "vandtia-tui"
+path = "src/bin/tui.rs"
+required-features = ["tui-requirements"]
+
+[[bin]]
+name = "vandtia-graphics"
+path = "src/bin/graphics.rs"
+required-features = ["graphics"]

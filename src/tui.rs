@@ -296,7 +296,7 @@ fn draw_players(frame: &mut Frame, game: &Game, area: Rect) {
     for player in 0..game.player_count() {
         let current = player == game.current_player();
         let label = if player == 0 {
-            "Sinä".to_owned()
+            "Spelare".to_owned()
         } else {
             format!("Dator {}", player + 1)
         };
