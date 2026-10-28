@@ -1,3 +1,5 @@
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, process};
 
 use macroquad::prelude::*;
@@ -29,8 +31,8 @@ async fn main() {
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let (players, seed) = parse_args()?;
-    let mut game = Game::new(players, seed)?;
+    let (mut players, seed) = parse_args()?;
+    let mut game = None;
     let mut cursor = 0usize;
     let mut selected = Vec::new();
     let mut status =
@@ -38,11 +40,46 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut ai_next_at = 0.0;
 
     loop {
+        if game.is_none() {
+            draw_setup_screen(players, seed.is_some(), screen_width(), screen_height());
+            if is_key_pressed(KeyCode::Left) || is_key_pressed(KeyCode::Down) {
+                players = players.saturating_sub(1).max(2);
+            }
+            if is_key_pressed(KeyCode::Right) || is_key_pressed(KeyCode::Up) {
+                players = (players + 1).min(5);
+            }
+            if is_mouse_button_pressed(MouseButton::Left) {
+                let (mouse_x, mouse_y) = mouse_position();
+                let (minus, plus) = setup_player_buttons(screen_width(), screen_height());
+                if draw_button_contains(minus, mouse_x, mouse_y) {
+                    players = players.saturating_sub(1).max(2);
+                } else if draw_button_contains(plus, mouse_x, mouse_y) {
+                    players = (players + 1).min(5);
+                }
+            }
+            if is_key_pressed(KeyCode::Enter)
+                || (is_mouse_button_pressed(MouseButton::Left)
+                    && start_button_contains(mouse_position().0, mouse_position().1))
+            {
+                let game_seed = match seed {
+                    Some(seed) => seed,
+                    None => random_seed()?,
+                };
+                game = Some(Game::new(players, game_seed)?);
+            }
+            if is_key_pressed(KeyCode::Q) || is_key_pressed(KeyCode::Escape) {
+                break;
+            }
+            next_frame().await;
+            continue;
+        }
+
+        let game = game.as_mut().expect("game initialized above");
         let current_player = game.current_player();
         let phase = game.player_phase(0).unwrap_or(PlayerPhase::FaceDown);
-        let display_order = player_display_order(&game, phase);
+        let display_order = player_display_order(game, phase);
         if game.winner().is_none() && current_player != 0 && get_time() >= ai_next_at {
-            match play_computer_turn(&mut game) {
+            match play_computer_turn(game) {
                 Ok(outcome) => {
                     status = format_outcome(&format!("Player {} ", current_player + 1), &outcome);
                     ai_next_at = get_time() + 0.7;
@@ -53,7 +90,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        draw_screen(&game, cursor, &selected, &status);
+        draw_screen(game, cursor, &selected, &status);
 
         if let Some(winner) = game.winner() {
             status = if winner == 0 {
@@ -69,7 +106,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         if current_player == 0 {
-            let count = player_card_count(&game, phase);
+            let count = player_card_count(game, phase);
             if count > 0 {
                 cursor = cursor.min(count - 1);
             } else {
@@ -127,7 +164,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     status = "Select one or more cards first.".to_owned();
                 } else {
                     play_selected(
-                        &mut game,
+                        game,
                         phase,
                         &indices,
                         &mut selected,
@@ -169,7 +206,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         let indices = selected.clone();
                         play_selected(
-                            &mut game,
+                            game,
                             phase,
                             &indices,
                             &mut selected,
@@ -211,7 +248,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         let indices = selected.clone();
                         play_selected(
-                            &mut game,
+                            game,
                             phase,
                             &indices,
                             &mut selected,
@@ -268,9 +305,9 @@ fn selection_status(selected: &[usize]) -> String {
     }
 }
 
-fn parse_args() -> Result<(usize, u64), Box<dyn std::error::Error>> {
+fn parse_args() -> Result<(usize, Option<u64>), Box<dyn std::error::Error>> {
     let mut players = 4usize;
-    let mut seed = 1u64;
+    let mut seed = None;
     let mut args = env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -278,16 +315,123 @@ fn parse_args() -> Result<(usize, u64), Box<dyn std::error::Error>> {
                 players = args.next().ok_or("--players requires a value")?.parse()?;
             }
             "--seed" | "-s" => {
-                seed = args.next().ok_or("--seed requires a value")?.parse()?;
+                seed = Some(args.next().ok_or("--seed requires a value")?.parse()?);
             }
             "--help" | "-h" => {
                 println!("Usage: vandtia-graphics [--players 2-5] [--seed N]");
+                println!("Without --seed, a new seed is generated when the game starts.");
                 process::exit(0);
             }
             unknown => return Err(format!("unknown argument: {unknown}").into()),
         }
     }
+    if !(2..=5).contains(&players) {
+        return Err("--players must be between 2 and 5".into());
+    }
     Ok((players, seed))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn random_seed() -> Result<u64, std::time::SystemTimeError> {
+    let time = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos() as u64;
+    let process_salt = u64::from(process::id()).rotate_left(17);
+    let frame_salt = (get_time() * 1_000_000_000.0) as u64;
+    Ok(time ^ process_salt ^ frame_salt.rotate_left(31))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn random_seed() -> Result<u64, std::convert::Infallible> {
+    let clock = (get_time() * 1_000_000_000.0) as u64;
+    let random = u64::from(macroquad::rand::gen_range(0_u32, u32::MAX));
+    Ok(clock ^ random.rotate_left(29) ^ (random << 32))
+}
+
+fn draw_setup_screen(players: usize, fixed_seed: bool, width: f32, height: f32) {
+    clear_background(TABLE_COLOR);
+    draw_text("VANDTIA", width / 2.0 - 92.0, height * 0.22, 48.0, GOLD);
+    draw_text(
+        "Choose the number of players",
+        width / 2.0 - 167.0,
+        height * 0.36,
+        24.0,
+        WHITE,
+    );
+
+    let center_y = height * 0.51;
+    let (minus, plus) = setup_player_buttons(width, height);
+    draw_setup_button(minus, "-");
+    draw_setup_button(plus, "+");
+    draw_text(
+        players.to_string(),
+        width / 2.0 - 14.0,
+        center_y + 17.0,
+        42.0,
+        WHITE,
+    );
+    draw_text(
+        "Use LEFT/RIGHT or the buttons (2-5 players)",
+        width / 2.0 - 216.0,
+        center_y + 61.0,
+        18.0,
+        LIGHTGRAY,
+    );
+    draw_text(
+        if fixed_seed {
+            "Using the seed supplied on the command line"
+        } else {
+            "A random seed will be generated for this game"
+        },
+        width / 2.0 - 207.0,
+        center_y + 96.0,
+        17.0,
+        LIGHTGRAY,
+    );
+
+    let start = setup_start_button(width, height);
+    draw_setup_button(start, "START GAME");
+    draw_text(
+        "ENTER: START    Q: QUIT",
+        width / 2.0 - 105.0,
+        start.y + start.h + 33.0,
+        17.0,
+        LIGHTGRAY,
+    );
+}
+
+fn setup_player_buttons(width: f32, height: f32) -> (Rect, Rect) {
+    let center_y = height * 0.51;
+    (
+        Rect::new(width / 2.0 - 146.0, center_y - 29.0, 58.0, 58.0),
+        Rect::new(width / 2.0 + 88.0, center_y - 29.0, 58.0, 58.0),
+    )
+}
+
+fn setup_start_button(width: f32, height: f32) -> Rect {
+    Rect::new(width / 2.0 - 105.0, height * 0.72, 210.0, 52.0)
+}
+
+fn start_button_contains(x: f32, y: f32) -> bool {
+    let start = setup_start_button(screen_width(), screen_height());
+    draw_button_contains(start, x, y)
+}
+
+fn draw_setup_button(rect: Rect, label: &str) {
+    draw_rectangle(
+        rect.x,
+        rect.y,
+        rect.w,
+        rect.h,
+        Color::new(0.13, 0.4, 0.28, 1.0),
+    );
+    draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 3.0, GOLD);
+    let text_width = measure_text(label, None, 24, 1.0).width;
+    draw_text(
+        label,
+        rect.x + (rect.w - text_width) / 2.0,
+        rect.y + rect.h / 2.0 + 9.0,
+        24.0,
+        WHITE,
+    );
 }
 
 fn draw_screen(game: &Game, cursor: usize, selected: &[usize], status: &str) {
@@ -321,43 +465,59 @@ fn draw_screen(game: &Game, cursor: usize, selected: &[usize], status: &str) {
     };
     draw_text(&current, width - 210.0, 38.0, 22.0, SKYBLUE);
 
-    draw_opponents(game, width);
+    draw_player_tables(game, width);
     draw_pile(game, width, height);
     draw_player_cards(game, cursor, selected, width, height);
     draw_controls(game, status, width, height);
 }
 
-fn draw_opponents(game: &Game, width: f32) {
-    let opponent_count = game.player_count().saturating_sub(1);
-    let columns = opponent_columns(opponent_count, width);
-    for (index, player) in (1..game.player_count()).enumerate() {
-        let x = 28.0 + (index % columns) as f32 * 234.0;
-        let y = 76.0 + (index / columns) as f32 * 154.0;
+fn draw_player_tables(game: &Game, width: f32) {
+    let columns = opponent_columns(game.player_count(), width);
+    for player in 0..game.player_count() {
+        let x = 28.0 + (player % columns) as f32 * 234.0;
+        let y = 76.0 + (player / columns) as f32 * 154.0;
         draw_rectangle(x, y, 220.0, 140.0, PANEL_COLOR);
         draw_rectangle_lines(x, y, 220.0, 140.0, 2.0, DARKGREEN);
+        let label = if player == 0 {
+            "YOU".to_owned()
+        } else {
+            format!("PLAYER {}", player + 1)
+        };
+        let hand_count = game.hand_count(player).unwrap_or(0);
         draw_text(
-            format!(
-                "Player {}: {} in hand",
-                player + 1,
-                game.hand_count(player).unwrap_or(0)
-            ),
+            format!("{label}: {hand_count} IN HAND"),
             x + 12.0,
             y + 27.0,
-            18.0,
+            16.0,
             WHITE,
         );
-        let open = game.face_up(player).unwrap_or(&[]);
-        draw_text("FACE UP:", x + 12.0, y + 48.0, 15.0, LIGHTGRAY);
-        for (index, card) in open.iter().take(3).enumerate() {
-            draw_compact_card(x + 12.0 + index as f32 * 58.0, y + 56.0, *card);
+        for (slot, (has_face_down, face_up_card)) in table_stack_layers(
+            game.face_up(player).unwrap_or(&[]),
+            game.face_down_count(player).unwrap_or(0),
+        )
+        .into_iter()
+        .enumerate()
+        {
+            let card_x = x + 12.0 + slot as f32 * 58.0;
+            let card_y = y + 48.0;
+            if has_face_down {
+                draw_card_back_at_size(card_x, card_y + 5.0, 54.0, 78.0, false);
+            }
+            if let Some(card) = face_up_card {
+                draw_compact_card(card_x, card_y, card);
+            }
         }
     }
 }
 
-fn opponent_columns(opponent_count: usize, width: f32) -> usize {
-    let available_width = (width * 0.72 - 28.0).max(220.0);
+fn opponent_columns(player_count: usize, width: f32) -> usize {
+    let available_width = (width - 56.0).max(220.0);
     let columns = ((available_width + 14.0) / 234.0).floor() as usize;
-    columns.max(1).min(opponent_count.max(1))
+    columns.max(1).min(player_count.max(1))
+}
+
+fn table_stack_layers(face_up: &[Card], face_down_count: usize) -> [(bool, Option<Card>); 3] {
+    std::array::from_fn(|index| (index < face_down_count, face_up.get(index).copied()))
 }
 
 fn draw_compact_card(x: f32, y: f32, card: Card) {
@@ -430,9 +590,9 @@ fn draw_player_cards(game: &Game, cursor: usize, selected: &[usize], width: f32,
             draw_text(
                 format!("{}", index + 1),
                 x + card_width / 2.0 - 5.0,
-                y + 78.0,
-                24.0,
-                WHITE,
+                y + CARD_HEIGHT + 19.0,
+                16.0,
+                LIGHTGRAY,
             );
         } else if let Some(card) = cards.get(card_index) {
             draw_card_sized(x, y, *card, card_width, is_selected, index == cursor);
@@ -940,17 +1100,58 @@ fn suit_sort_key(suit: Suit) -> u8 {
 }
 
 fn draw_card_back(x: f32, y: f32, width: f32, highlighted: bool) {
-    let color = Color::new(0.12, 0.28, 0.62, 1.0);
-    draw_rectangle(x, y, width, CARD_HEIGHT, color);
-    draw_rectangle_lines(
-        x,
-        y,
-        width,
-        CARD_HEIGHT,
-        if highlighted { 4.0 } else { 2.0 },
-        if highlighted { GOLD } else { WHITE },
+    draw_card_back_at_size(x, y, width, CARD_HEIGHT, highlighted);
+}
+
+fn draw_card_back_at_size(x: f32, y: f32, width: f32, height: f32, highlighted: bool) {
+    let scale = height / CARD_HEIGHT;
+    let navy = Color::new(0.07, 0.17, 0.39, 1.0);
+    let blue = Color::new(0.16, 0.38, 0.68, 1.0);
+    let gold = Color::new(0.95, 0.73, 0.27, 1.0);
+    draw_rectangle(x, y, width, height, if highlighted { GOLD } else { navy });
+    draw_rectangle(
+        x + 3.0 * scale,
+        y + 3.0 * scale,
+        width - 6.0 * scale,
+        height - 6.0 * scale,
+        blue,
     );
-    draw_text("CARD", x + width / 2.0 - 19.0, y + 79.0, 17.0, WHITE);
+    draw_rectangle_lines(
+        x + 7.0 * scale,
+        y + 7.0 * scale,
+        width - 14.0 * scale,
+        height - 14.0 * scale,
+        2.0 * scale,
+        gold,
+    );
+    for row in 0..5 {
+        for column in 0..3 {
+            let px = x + (14.0 + column as f32 * 25.0) * scale;
+            let py = y + (19.0 + row as f32 * 25.0) * scale;
+            draw_pixel_pattern(
+                px,
+                py,
+                2.0 * scale,
+                suit_pattern(if (row + column) % 2 == 0 {
+                    Suit::Diamonds
+                } else {
+                    Suit::Hearts
+                }),
+                if (row + column) % 2 == 0 {
+                    gold
+                } else {
+                    Color::new(0.86, 0.89, 0.96, 1.0)
+                },
+            );
+        }
+    }
+    draw_pixel_pattern(
+        x + width / 2.0 - 14.0 * scale,
+        y + height / 2.0 - 14.0 * scale,
+        4.0 * scale,
+        suit_pattern(Suit::Spades),
+        navy,
+    );
 }
 
 fn card_at_position(
@@ -1153,9 +1354,53 @@ mod tests {
 
     #[test]
     fn opponent_grid_keeps_all_players_in_the_reserved_area() {
-        assert_eq!(opponent_columns(4, 990.0), 2);
-        assert_eq!(opponent_columns(4, 1100.0), 3);
+        assert_eq!(opponent_columns(4, 990.0), 4);
+        assert_eq!(opponent_columns(4, 1100.0), 4);
         assert_eq!(opponent_columns(4, 500.0), 1);
+        assert_eq!(4_usize.div_ceil(opponent_columns(4, 1100.0)), 1);
+        assert_eq!(4_usize.div_ceil(opponent_columns(4, 500.0)), 4);
+    }
+
+    #[test]
+    fn setup_controls_stay_within_the_player_selector() {
+        let (minus, plus) = setup_player_buttons(1100.0, 760.0);
+        let start = setup_start_button(1100.0, 760.0);
+        assert_eq!(minus.y, plus.y);
+        assert!(minus.y + minus.h < start.y);
+        assert!(76.0 + 140.0 < 760.0 - CARD_HEIGHT - 154.0);
+    }
+
+    #[test]
+    fn player_table_grid_includes_every_player() {
+        assert_eq!(2_usize.div_ceil(opponent_columns(2, 1100.0)), 1);
+        assert_eq!(5_usize.div_ceil(opponent_columns(5, 1100.0)), 2);
+        assert_eq!(opponent_columns(5, 1100.0), 4);
+    }
+
+    #[test]
+    fn table_stacks_show_face_up_cards_over_remaining_face_down_cards() {
+        let face_up = [
+            Card {
+                rank: Rank::Jack,
+                suit: Suit::Hearts,
+            },
+            Card {
+                rank: Rank::Two,
+                suit: Suit::Clubs,
+            },
+        ];
+        assert_eq!(
+            table_stack_layers(&face_up, 3),
+            [
+                (true, Some(face_up[0])),
+                (true, Some(face_up[1])),
+                (true, None),
+            ]
+        );
+        assert_eq!(
+            table_stack_layers(&[], 2),
+            [(true, None), (true, None), (false, None)]
+        );
     }
 
     #[test]
