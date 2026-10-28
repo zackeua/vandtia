@@ -32,7 +32,7 @@ async fn main() {
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let (mut players, seed) = parse_args()?;
-    let mut game = None;
+    let mut game_session = None;
     let mut cursor = 0usize;
     let mut selected = Vec::new();
     let mut status =
@@ -40,7 +40,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut ai_next_at = 0.0;
 
     loop {
-        if game.is_none() {
+        if game_session.is_none() {
             draw_setup_screen(players, seed.is_some(), screen_width(), screen_height());
             if is_key_pressed(KeyCode::Left) || is_key_pressed(KeyCode::Down) {
                 players = players.saturating_sub(1).max(2);
@@ -65,7 +65,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     Some(seed) => seed,
                     None => random_seed()?,
                 };
-                game = Some(Game::new(players, game_seed)?);
+                game_session = Some(Game::new(players, game_seed)?);
             }
             if is_key_pressed(KeyCode::Q) || is_key_pressed(KeyCode::Escape) {
                 break;
@@ -74,7 +74,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
 
-        let game = game.as_mut().expect("game initialized above");
+        let game = game_session.as_mut().expect("game initialized above");
         let current_player = game.current_player();
         let phase = game.player_phase(0).unwrap_or(PlayerPhase::FaceDown);
         let display_order = player_display_order(game, phase);
@@ -90,20 +90,30 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        draw_screen(game, cursor, &selected, &status);
-
         if let Some(winner) = game.winner() {
-            status = if winner == 0 {
-                "You won! Press Q to quit.".to_owned()
-            } else {
-                format!("Player {} won. Press Q to quit.", winner + 1)
-            };
+            draw_game_over_screen(winner, screen_width(), screen_height());
+            let (mouse_x, mouse_y) = mouse_position();
+            let return_to_menu = is_key_pressed(KeyCode::Enter)
+                || is_key_pressed(KeyCode::M)
+                || (is_mouse_button_pressed(MouseButton::Left)
+                    && menu_button_contains(mouse_x, mouse_y));
+            if return_to_menu {
+                game_session = None;
+                cursor = 0;
+                selected.clear();
+                status = String::from(
+                    "Click cards to select them, then click PLAY SELECTED or the pile.",
+                );
+                ai_next_at = 0.0;
+            }
             if is_key_pressed(KeyCode::Q) || is_key_pressed(KeyCode::Escape) {
                 break;
             }
             next_frame().await;
             continue;
         }
+
+        draw_screen(game, cursor, &selected, &status);
 
         if current_player == 0 {
             let count = player_card_count(game, phase);
@@ -413,6 +423,53 @@ fn setup_start_button(width: f32, height: f32) -> Rect {
 fn start_button_contains(x: f32, y: f32) -> bool {
     let start = setup_start_button(screen_width(), screen_height());
     draw_button_contains(start, x, y)
+}
+
+fn menu_button_rect(width: f32, height: f32) -> Rect {
+    Rect::new(width / 2.0 - 120.0, height * 0.62, 240.0, 54.0)
+}
+
+fn menu_button_contains(x: f32, y: f32) -> bool {
+    draw_button_contains(menu_button_rect(screen_width(), screen_height()), x, y)
+}
+
+fn draw_game_over_screen(winner: usize, width: f32, height: f32) {
+    clear_background(TABLE_COLOR);
+    draw_text("GAME OVER", width / 2.0 - 139.0, height * 0.28, 42.0, GOLD);
+    let message = if winner == 0 {
+        "You won!"
+    } else {
+        "Player won!"
+    };
+    let message_width = measure_text(message, None, 30, 1.0).width;
+    draw_text(
+        message,
+        width / 2.0 - message_width / 2.0,
+        height * 0.43,
+        30.0,
+        WHITE,
+    );
+    if winner > 0 {
+        let player = format!("Player {} is the winner", winner + 1);
+        let player_width = measure_text(&player, None, 20, 1.0).width;
+        draw_text(
+            &player,
+            width / 2.0 - player_width / 2.0,
+            height * 0.50,
+            20.0,
+            LIGHTGRAY,
+        );
+    }
+
+    let menu_button = menu_button_rect(width, height);
+    draw_setup_button(menu_button, "BACK TO MENU");
+    draw_text(
+        "ENTER / M: MENU    Q: QUIT",
+        width / 2.0 - 125.0,
+        menu_button.y + menu_button.h + 34.0,
+        17.0,
+        LIGHTGRAY,
+    );
 }
 
 fn draw_setup_button(rect: Rect, label: &str) {
@@ -1368,6 +1425,19 @@ mod tests {
         assert_eq!(minus.y, plus.y);
         assert!(minus.y + minus.h < start.y);
         assert!(76.0 + 140.0 < 760.0 - CARD_HEIGHT - 154.0);
+    }
+
+    #[test]
+    fn game_over_menu_button_is_centered_and_clickable() {
+        let button = menu_button_rect(1100.0, 760.0);
+        assert_eq!(button.x + button.w / 2.0, 550.0);
+        assert_eq!(button.y + button.h / 2.0, 498.2);
+        assert!(draw_button_contains(
+            button,
+            button.x + button.w / 2.0,
+            button.y + button.h / 2.0
+        ));
+        assert!(!draw_button_contains(button, button.x - 1.0, button.y));
     }
 
     #[test]
