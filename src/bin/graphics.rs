@@ -40,6 +40,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let current_player = game.current_player();
         let phase = game.player_phase(0).unwrap_or(PlayerPhase::FaceDown);
+        let display_order = player_display_order(&game, phase);
         if game.winner().is_none() && current_player != 0 && get_time() >= ai_next_at {
             match play_computer_turn(&mut game) {
                 Ok(outcome) => {
@@ -84,7 +85,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 && phase != PlayerPhase::FaceDown
                 && count > 0
             {
-                toggle_selection(&mut selected, cursor);
+                toggle_selection(&mut selected, display_order[cursor]);
                 status = selection_status(&selected);
             }
             if is_key_pressed(KeyCode::D) && phase == PlayerPhase::Hand {
@@ -142,10 +143,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
             if is_mouse_button_pressed(MouseButton::Left) {
                 let (mouse_x, mouse_y) = mouse_position();
-                if let Some(index) =
+                if let Some(slot) =
                     card_at_position(mouse_x, mouse_y, count, screen_width(), screen_height())
                 {
-                    cursor = index;
+                    cursor = slot;
+                    let index = display_order[slot];
                     if phase == PlayerPhase::FaceDown {
                         match game.play_face_down_at(index) {
                             Ok(outcome) => {
@@ -430,10 +432,11 @@ fn draw_player_cards(game: &Game, cursor: usize, selected: &[usize], width: f32,
     let start_y = height - CARD_HEIGHT - 154.0;
     draw_text(title, 28.0, start_y - 16.0, 20.0, GOLD);
     let (card_width, card_gap, start_x) = card_layout(count, width);
+    let display_order = player_display_order(game, phase);
 
-    for index in 0..count {
+    for (index, card_index) in display_order.iter().copied().enumerate() {
         let x = start_x + index as f32 * (card_width + card_gap);
-        let is_selected = selected.contains(&index);
+        let is_selected = selected.contains(&card_index);
         let y = start_y;
         if phase == PlayerPhase::FaceDown {
             draw_card_back(x, y, card_width, index == cursor);
@@ -444,7 +447,7 @@ fn draw_player_cards(game: &Game, cursor: usize, selected: &[usize], width: f32,
                 24.0,
                 WHITE,
             );
-        } else if let Some(card) = cards.get(index) {
+        } else if let Some(card) = cards.get(card_index) {
             draw_card_sized(x, y, *card, card_width, is_selected, index == cursor);
             draw_text(
                 format!("{}", index + 1),
@@ -599,37 +602,291 @@ fn draw_card(x: f32, y: f32, card: Card, highlighted: bool) {
 }
 
 fn draw_card_sized(x: f32, y: f32, card: Card, width: f32, selected: bool, focused: bool) {
-    let fill = if selected {
-        Color::new(1.0, 0.96, 0.78, 1.0)
+    let suit = suit_color(card.suit);
+    let paper = if selected {
+        Color::new(1.0, 0.95, 0.72, 1.0)
     } else {
-        WHITE
+        Color::new(0.98, 0.96, 0.87, 1.0)
     };
-    let outline = if selected {
+    let edge = if selected {
         GREEN
     } else if focused {
         GOLD
     } else {
-        LIGHTGRAY
+        Color::new(0.12, 0.16, 0.2, 1.0)
     };
-    draw_rectangle(x, y, width, CARD_HEIGHT, fill);
-    draw_rectangle_lines(
-        x,
-        y,
-        width,
-        CARD_HEIGHT,
-        if selected || focused { 4.0 } else { 2.0 },
-        outline,
+    draw_rectangle(x, y, width, CARD_HEIGHT, edge);
+    draw_rectangle(x + 3.0, y + 3.0, width - 6.0, CARD_HEIGHT - 6.0, paper);
+    draw_rectangle(x + 7.0, y + 7.0, width - 14.0, 4.0, suit);
+    draw_rectangle(x + 7.0, y + CARD_HEIGHT - 11.0, width - 14.0, 4.0, suit);
+    draw_pixel_text(
+        rank_label(card.rank),
+        x + 10.0,
+        y + 17.0,
+        3.0,
+        Color::new(0.08, 0.1, 0.13, 1.0),
     );
-    let color = suit_color(card.suit);
-    draw_text(rank_label(card.rank), x + 8.0, y + 26.0, 23.0, BLACK);
-    draw_text(suit_letter(card.suit), x + 8.0, y + 47.0, 20.0, color);
-    draw_text(
-        suit_letter(card.suit),
-        x + width / 2.0 - 13.0,
-        y + 94.0,
-        38.0,
-        color,
+    draw_pixel_pattern(
+        x + width - 21.0,
+        y + 10.0,
+        2.0,
+        suit_pattern(card.suit),
+        suit,
     );
+
+    if has_face_portrait(card.rank) {
+        draw_card_mascot(x + width / 2.0 - 17.5, y + 48.0, card.rank);
+    } else if card.rank == Rank::Ace {
+        draw_card_mascot(x + width / 2.0 - 17.5, y + 55.0, card.rank);
+    } else {
+        let label = rank_label(card.rank);
+        let columns = label.chars().count() * 3 + label.len().saturating_sub(1);
+        let rank_pixel = ((width - 20.0) / columns as f32).clamp(3.0, 10.0);
+        let rank_width = pixel_text_width(label, rank_pixel);
+        draw_pixel_text(
+            label,
+            x + (width - rank_width) / 2.0,
+            y + 53.0,
+            rank_pixel,
+            Color::new(0.08, 0.1, 0.13, 1.0),
+        );
+    }
+
+    draw_pixel_pattern(
+        x + width / 2.0 - 10.5,
+        y + 119.0,
+        1.5,
+        suit_pattern(card.suit),
+        suit,
+    );
+}
+
+fn pixel_glyph(character: char) -> [u8; 5] {
+    match character {
+        '0' => [0b111, 0b101, 0b101, 0b101, 0b111],
+        '1' => [0b010, 0b110, 0b010, 0b010, 0b111],
+        '2' => [0b111, 0b001, 0b111, 0b100, 0b111],
+        '3' => [0b111, 0b001, 0b111, 0b001, 0b111],
+        '4' => [0b101, 0b101, 0b111, 0b001, 0b001],
+        '5' => [0b111, 0b100, 0b111, 0b001, 0b111],
+        '6' => [0b111, 0b100, 0b111, 0b101, 0b111],
+        '7' => [0b111, 0b001, 0b010, 0b010, 0b010],
+        '8' => [0b111, 0b101, 0b111, 0b101, 0b111],
+        '9' => [0b111, 0b101, 0b111, 0b001, 0b111],
+        'A' => [0b010, 0b101, 0b111, 0b101, 0b101],
+        'J' => [0b111, 0b001, 0b001, 0b101, 0b111],
+        'K' => [0b101, 0b101, 0b110, 0b101, 0b101],
+        'Q' => [0b111, 0b101, 0b101, 0b111, 0b001],
+        _ => [0; 5],
+    }
+}
+
+fn pixel_text_width(text: &str, pixel: f32) -> f32 {
+    text.chars().count() as f32 * 3.0 * pixel
+        + text.chars().count().saturating_sub(1) as f32 * pixel
+}
+
+fn draw_pixel_text(text: &str, x: f32, y: f32, pixel: f32, color: Color) {
+    let mut cursor_x = x;
+    for character in text.chars() {
+        for (row, bits) in pixel_glyph(character).iter().enumerate() {
+            for column in 0..3 {
+                if bits & (1 << (2 - column)) != 0 {
+                    draw_rectangle(
+                        cursor_x + column as f32 * pixel,
+                        y + row as f32 * pixel,
+                        pixel,
+                        pixel,
+                        color,
+                    );
+                }
+            }
+        }
+        cursor_x += pixel * 4.0;
+    }
+}
+
+fn suit_pattern(suit: Suit) -> &'static [u8] {
+    match suit {
+        Suit::Clubs => &[
+            0b0011100, 0b0111110, 0b1111111, 0b0011100, 0b0011100, 0b0111110, 0b0111110,
+        ],
+        Suit::Diamonds => &[
+            0b0001000, 0b0011100, 0b0111110, 0b1111111, 0b0111110, 0b0011100, 0b0001000,
+        ],
+        Suit::Hearts => &[
+            0b0110110, 0b1111111, 0b1111111, 0b1111111, 0b0111110, 0b0011100, 0b0001000,
+        ],
+        Suit::Spades => &[
+            0b0001000, 0b0011100, 0b0111110, 0b1111111, 0b1111111, 0b0011100, 0b0111110,
+        ],
+    }
+}
+
+fn draw_pixel_pattern(x: f32, y: f32, pixel: f32, rows: &[u8], color: Color) {
+    for (row, bits) in rows.iter().enumerate() {
+        for column in 0..7 {
+            if bits & (1 << (6 - column)) != 0 {
+                draw_rectangle(
+                    x + column as f32 * pixel,
+                    y + row as f32 * pixel,
+                    pixel,
+                    pixel,
+                    color,
+                );
+            }
+        }
+    }
+}
+
+fn draw_card_mascot(x: f32, y: f32, rank: Rank) {
+    let ink = Color::new(0.1, 0.13, 0.17, 1.0);
+    let skin = Color::new(1.0, 0.69, 0.31, 1.0);
+    match rank {
+        Rank::Ace => {
+            draw_pixel_pattern(
+                x + 3.0,
+                y + 2.0,
+                4.0,
+                &[
+                    0b0001000, 0b0011100, 0b1111111, 0b0111110, 0b0111110, 0b0011100, 0b0011100,
+                ],
+                GOLD,
+            );
+            draw_rectangle(x + 14.0, y + 16.0, 4.0, 4.0, WHITE);
+        }
+        Rank::Jack => {
+            let tunic = Color::new(0.15, 0.44, 0.72, 1.0);
+            draw_pixel_pattern(x + 3.0, y, 4.0, &[0b0010000, 0b0111000, 0b1111111], GOLD);
+            draw_pixel_pattern(x + 3.0, y + 11.0, 4.0, &[0b0011100, 0b0111110], ink);
+            draw_pixel_pattern(
+                x + 3.0,
+                y + 19.0,
+                4.0,
+                &[0b0111110, 0b1111111, 0b1111111, 0b1111111, 0b0111110],
+                skin,
+            );
+            draw_rectangle(x + 10.0, y + 27.0, 4.0, 4.0, ink);
+            draw_rectangle(x + 22.0, y + 27.0, 4.0, 4.0, ink);
+            draw_pixel_pattern(x + 11.0, y + 39.0, 4.0, &[0b0001000, 0b0011100], skin);
+            draw_pixel_pattern(
+                x,
+                y + 47.0,
+                4.0,
+                &[0b0010000, 0b0111110, 0b1111111, 0b1111111, 0b1111111],
+                tunic,
+            );
+            draw_rectangle(x + 15.0, y + 47.0, 4.0, 16.0, GOLD);
+        }
+        Rank::Queen => {
+            let hair = Color::new(0.55, 0.16, 0.39, 1.0);
+            draw_pixel_pattern(x + 3.0, y, 4.0, &[0b1010101, 0b1111111], GOLD);
+            draw_pixel_pattern(
+                x + 3.0,
+                y + 9.0,
+                4.0,
+                &[
+                    0b0111110, 0b1111111, 0b1111111, 0b1111111, 0b0111110, 0b0111110,
+                ],
+                hair,
+            );
+            draw_pixel_pattern(
+                x + 7.0,
+                y + 17.0,
+                4.0,
+                &[0b0011100, 0b0111110, 0b0111110, 0b0111110],
+                skin,
+            );
+            draw_rectangle(x + 11.0, y + 29.0, 4.0, 4.0, ink);
+            draw_rectangle(x + 21.0, y + 29.0, 4.0, 4.0, ink);
+            draw_pixel_pattern(x + 11.0, y + 38.0, 4.0, &[0b0111110, 0b0011100], PINK);
+            draw_pixel_pattern(
+                x,
+                y + 46.0,
+                4.0,
+                &[0b0010000, 0b0111110, 0b1111111, 0b1111111, 0b1111111],
+                hair,
+            );
+            draw_pixel_pattern(x + 14.0, y + 47.0, 4.0, &[0b0011100, 0b0011100], GOLD);
+        }
+        Rank::King => {
+            let beard = Color::new(0.42, 0.22, 0.11, 1.0);
+            let robe = Color::new(0.43, 0.2, 0.58, 1.0);
+            draw_pixel_pattern(x + 3.0, y, 4.0, &[0b1010101, 0b1111111, 0b1111111], GOLD);
+            draw_pixel_pattern(
+                x + 3.0,
+                y + 13.0,
+                4.0,
+                &[0b0111110, 0b1111111, 0b1111111, 0b1111111, 0b0111110],
+                skin,
+            );
+            draw_rectangle(x + 10.0, y + 25.0, 4.0, 4.0, ink);
+            draw_rectangle(x + 22.0, y + 25.0, 4.0, 4.0, ink);
+            draw_pixel_pattern(
+                x + 7.0,
+                y + 32.0,
+                4.0,
+                &[0b0111110, 0b0111110, 0b0011100, 0b0011100],
+                beard,
+            );
+            draw_pixel_pattern(
+                x,
+                y + 48.0,
+                4.0,
+                &[0b0010000, 0b0111110, 0b1111111, 0b1111111, 0b1111111],
+                robe,
+            );
+            draw_pixel_pattern(x + 15.0, y + 49.0, 4.0, &[0b0011100, 0b0011100], GOLD);
+        }
+        _ => (),
+    }
+}
+
+fn has_face_portrait(rank: Rank) -> bool {
+    matches!(rank, Rank::Jack | Rank::Queen | Rank::King)
+}
+
+fn player_display_order(game: &Game, phase: PlayerPhase) -> Vec<usize> {
+    let count = player_card_count(game, phase);
+    if phase != PlayerPhase::Hand {
+        return (0..count).collect();
+    }
+
+    let mut indices = (0..count).collect::<Vec<_>>();
+    if let Some(hand) = game.hand(0) {
+        indices.sort_by_key(|index| {
+            let card = hand[*index];
+            (rank_sort_key(card.rank), suit_sort_key(card.suit))
+        });
+    }
+    indices
+}
+
+fn rank_sort_key(rank: Rank) -> u8 {
+    match rank {
+        Rank::Three => 0,
+        Rank::Four => 1,
+        Rank::Five => 2,
+        Rank::Six => 3,
+        Rank::Seven => 4,
+        Rank::Eight => 5,
+        Rank::Nine => 6,
+        Rank::Jack => 7,
+        Rank::Queen => 8,
+        Rank::King => 9,
+        Rank::Ace => 10,
+        Rank::Two => 11,
+        Rank::Ten => 12,
+    }
+}
+
+fn suit_sort_key(suit: Suit) -> u8 {
+    match suit {
+        Suit::Clubs => 0,
+        Suit::Diamonds => 1,
+        Suit::Hearts => 2,
+        Suit::Spades => 3,
+    }
 }
 
 fn draw_card_back(x: f32, y: f32, width: f32, highlighted: bool) {
@@ -862,6 +1119,62 @@ mod tests {
                 height
             ));
             assert!(!pile_target_contains(pile.x - 1.0, pile.y, width, height));
+        }
+    }
+
+    #[test]
+    fn hand_sort_places_twos_and_tens_after_aces() {
+        let ranks = [
+            Rank::Ace,
+            Rank::Four,
+            Rank::Ten,
+            Rank::Two,
+            Rank::King,
+            Rank::Three,
+        ];
+        let mut sorted = ranks;
+        sorted.sort_by_key(|rank| rank_sort_key(*rank));
+        assert_eq!(
+            sorted,
+            [
+                Rank::Three,
+                Rank::Four,
+                Rank::King,
+                Rank::Ace,
+                Rank::Two,
+                Rank::Ten
+            ]
+        );
+    }
+
+    #[test]
+    fn pixel_font_has_distinct_rank_glyphs() {
+        for glyph in [
+            '2', '3', '4', '5', '6', '7', '8', '9', '1', '0', 'A', 'J', 'Q', 'K',
+        ] {
+            assert_ne!(pixel_glyph(glyph), [0; 5]);
+        }
+        assert!(pixel_text_width("10", 5.0) > pixel_text_width("A", 5.0));
+    }
+
+    #[test]
+    fn only_jack_queen_and_king_have_face_portraits() {
+        for rank in [Rank::Jack, Rank::Queen, Rank::King] {
+            assert!(has_face_portrait(rank));
+        }
+        for rank in [
+            Rank::Two,
+            Rank::Three,
+            Rank::Four,
+            Rank::Five,
+            Rank::Six,
+            Rank::Seven,
+            Rank::Eight,
+            Rank::Nine,
+            Rank::Ten,
+            Rank::Ace,
+        ] {
+            assert!(!has_face_portrait(rank));
         }
     }
 }
