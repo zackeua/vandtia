@@ -12,7 +12,7 @@ const PANEL_COLOR: Color = Color::new(0.02, 0.12, 0.09, 1.0);
 
 fn window_conf() -> Conf {
     Conf {
-        window_title: "Vandtia".to_owned(),
+        window_title: "Vändtia".to_owned(),
         window_width: 1100,
         window_height: 760,
         window_resizable: true,
@@ -293,7 +293,7 @@ fn draw_screen(game: &Game, cursor: usize, selected: &[usize], status: &str) {
     let width = screen_width();
     let height = screen_height();
 
-    draw_text("VANDTIA", 28.0, 42.0, 34.0, GOLD);
+    draw_text("VÄNDTIA", 28.0, 42.0, 34.0, GOLD);
     draw_text(
         format!(
             "DRAW PILE: {} cards     DISCARD PILE: {} cards",
@@ -326,12 +326,11 @@ fn draw_screen(game: &Game, cursor: usize, selected: &[usize], status: &str) {
 }
 
 fn draw_opponents(game: &Game, width: f32) {
-    let mut x = 28.0;
-    let y = 72.0;
-    for player in 0..game.player_count() {
-        if player == 0 {
-            continue;
-        }
+    let opponent_count = game.player_count().saturating_sub(1);
+    let columns = opponent_columns(opponent_count, width);
+    for (index, player) in (1..game.player_count()).enumerate() {
+        let x = 28.0 + (index % columns) as f32 * 234.0;
+        let y = 76.0 + (index / columns) as f32 * 154.0;
         draw_rectangle(x, y, 220.0, 140.0, PANEL_COLOR);
         draw_rectangle_lines(x, y, 220.0, 140.0, 2.0, DARKGREEN);
         draw_text(
@@ -346,54 +345,77 @@ fn draw_opponents(game: &Game, width: f32) {
             WHITE,
         );
         let open = game.face_up(player).unwrap_or(&[]);
-        draw_text("FACE UP:", x + 12.0, y + 53.0, 17.0, LIGHTGRAY);
+        draw_text("FACE UP:", x + 12.0, y + 48.0, 15.0, LIGHTGRAY);
         for (index, card) in open.iter().take(3).enumerate() {
-            draw_card(x + 12.0 + (index as f32 * 63.0), y + 65.0, *card, false);
-        }
-        x += 238.0;
-        if x + 220.0 > width {
-            break;
+            draw_compact_card(x + 12.0 + index as f32 * 58.0, y + 56.0, *card);
         }
     }
 }
 
+fn opponent_columns(opponent_count: usize, width: f32) -> usize {
+    let available_width = (width * 0.72 - 28.0).max(220.0);
+    let columns = ((available_width + 14.0) / 234.0).floor() as usize;
+    columns.max(1).min(opponent_count.max(1))
+}
+
+fn draw_compact_card(x: f32, y: f32, card: Card) {
+    const WIDTH: f32 = 54.0;
+    const HEIGHT: f32 = 78.0;
+    let color = suit_color(card.suit);
+    draw_rectangle(x, y, WIDTH, HEIGHT, WHITE);
+    draw_rectangle_lines(x, y, WIDTH, HEIGHT, 1.0, LIGHTGRAY);
+    draw_text(rank_label(card.rank), x + 5.0, y + 17.0, 15.0, BLACK);
+    draw_text(suit_letter(card.suit), x + 5.0, y + 33.0, 14.0, color);
+    draw_text(
+        suit_letter(card.suit),
+        x + WIDTH / 2.0 - 8.0,
+        y + 62.0,
+        24.0,
+        color,
+    );
+}
+
 fn draw_pile(game: &Game, width: f32, height: f32) {
-    let center_x = width * 0.68;
-    let center_y = height * 0.38;
+    let pile = pile_card_rect(width, height);
+    let center_x = pile.x + pile.w / 2.0;
     draw_text(
         "DISCARD PILE - CLICK TO PLAY",
         center_x - 145.0,
-        center_y - 62.0,
+        pile.y - 14.0,
         18.0,
         LIGHTGRAY,
     );
     if let Some(card) = game.pile().last() {
-        draw_card(center_x - CARD_WIDTH / 2.0, center_y - 48.0, *card, false);
+        draw_card(pile.x, pile.y, *card, false);
         draw_text(
             format!("{} cards in pile", game.pile().len()),
             center_x - 75.0,
-            center_y + 116.0,
+            pile.y + CARD_HEIGHT + 22.0,
             18.0,
             WHITE,
         );
     } else {
         draw_rectangle(
-            center_x - CARD_WIDTH / 2.0,
-            center_y - 48.0,
-            CARD_WIDTH,
-            CARD_HEIGHT,
+            pile.x,
+            pile.y,
+            pile.w,
+            pile.h,
             Color::new(0.03, 0.2, 0.14, 1.0),
         );
-        draw_rectangle_lines(
-            center_x - CARD_WIDTH / 2.0,
-            center_y - 48.0,
-            CARD_WIDTH,
-            CARD_HEIGHT,
-            2.0,
-            LIGHTGRAY,
-        );
-        draw_text("EMPTY", center_x - 27.0, center_y + 30.0, 18.0, LIGHTGRAY);
+        draw_rectangle_lines(pile.x, pile.y, pile.w, pile.h, 2.0, LIGHTGRAY);
+        draw_text("EMPTY", center_x - 27.0, pile.y + 78.0, 18.0, LIGHTGRAY);
     }
+}
+
+fn pile_card_rect(width: f32, height: f32) -> Rect {
+    let center_x = (width * 0.84).clamp(CARD_WIDTH / 2.0 + 12.0, width - CARD_WIDTH / 2.0 - 12.0);
+    let center_y = height * 0.36;
+    Rect::new(
+        center_x - CARD_WIDTH / 2.0,
+        center_y - 48.0,
+        CARD_WIDTH,
+        CARD_HEIGHT,
+    )
 }
 
 fn draw_player_cards(game: &Game, cursor: usize, selected: &[usize], width: f32, height: f32) {
@@ -534,12 +556,8 @@ fn pickup_button_contains(x: f32, y: f32, width: f32, height: f32) -> bool {
 }
 
 fn pile_target_contains(x: f32, y: f32, width: f32, height: f32) -> bool {
-    let center_x = width * 0.68;
-    let center_y = height * 0.38;
-    x >= center_x - CARD_WIDTH / 2.0
-        && x <= center_x + CARD_WIDTH / 2.0
-        && y >= center_y - 48.0
-        && y <= center_y - 48.0 + CARD_HEIGHT
+    let pile = pile_card_rect(width, height);
+    x >= pile.x && x <= pile.x + pile.w && y >= pile.y && y <= pile.y + pile.h
 }
 
 fn card_layout(count: usize, screen_width: f32) -> (f32, f32, f32) {
@@ -823,6 +841,27 @@ mod tests {
                 width,
                 height
             ));
+        }
+    }
+
+    #[test]
+    fn opponent_grid_keeps_all_players_in_the_reserved_area() {
+        assert_eq!(opponent_columns(4, 990.0), 2);
+        assert_eq!(opponent_columns(4, 1100.0), 3);
+        assert_eq!(opponent_columns(4, 500.0), 1);
+    }
+
+    #[test]
+    fn pile_hit_region_matches_its_draw_position() {
+        for (width, height) in [(500.0, 600.0), (990.0, 700.0), (1100.0, 760.0)] {
+            let pile = pile_card_rect(width, height);
+            assert!(pile_target_contains(
+                pile.x + pile.w / 2.0,
+                pile.y + pile.h / 2.0,
+                width,
+                height
+            ));
+            assert!(!pile_target_contains(pile.x - 1.0, pile.y, width, height));
         }
     }
 }
