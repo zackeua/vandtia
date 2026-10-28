@@ -6,12 +6,13 @@ use vandtia::{Card, Game, PlayerPhase, Rank, Suit, TurnOutcome, simulator::play_
 const CARD_WIDTH: f32 = 100.0;
 const CARD_HEIGHT: f32 = 142.0;
 const CARD_GAP: f32 = 14.0;
+const ACTION_BUTTON_HEIGHT: f32 = 38.0;
 const TABLE_COLOR: Color = Color::new(0.05, 0.28, 0.19, 1.0);
 const PANEL_COLOR: Color = Color::new(0.02, 0.12, 0.09, 1.0);
 
 fn window_conf() -> Conf {
     Conf {
-        window_title: "Vändtia".to_owned(),
+        window_title: "Vandtia".to_owned(),
         window_width: 1100,
         window_height: 760,
         window_resizable: true,
@@ -32,7 +33,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut game = Game::new(players, seed)?;
     let mut cursor = 0usize;
     let mut selected = Vec::new();
-    let mut status = String::from("Piltangenter väljer kort · mellanslag markerar · Enter spelar");
+    let mut status =
+        String::from("Click cards to select them, then click PLAY SELECTED or the pile.");
     let mut ai_next_at = 0.0;
 
     loop {
@@ -41,7 +43,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         if game.winner().is_none() && current_player != 0 && get_time() >= ai_next_at {
             match play_computer_turn(&mut game) {
                 Ok(outcome) => {
-                    status = format_outcome(&format!("Dator {} ", current_player + 1), &outcome);
+                    status = format_outcome(&format!("Player {} ", current_player + 1), &outcome);
                     ai_next_at = get_time() + 0.7;
                     cursor = 0;
                     selected.clear();
@@ -54,9 +56,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
         if let Some(winner) = game.winner() {
             status = if winner == 0 {
-                "Du vann! Tryck Q för att avsluta.".to_owned()
+                "You won! Press Q to quit.".to_owned()
             } else {
-                format!("Spelare {} vann. Tryck Q för att avsluta.", winner + 1)
+                format!("Player {} won. Press Q to quit.", winner + 1)
             };
             if is_key_pressed(KeyCode::Q) || is_key_pressed(KeyCode::Escape) {
                 break;
@@ -83,16 +85,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 && count > 0
             {
                 toggle_selection(&mut selected, cursor);
+                status = selection_status(&selected);
             }
             if is_key_pressed(KeyCode::D) && phase == PlayerPhase::Hand {
                 match game.draw_and_play() {
                     Ok(outcome) => {
-                        status = format_outcome("Du ", &outcome);
+                        status = format_outcome("You ", &outcome);
                         cursor = 0;
                         selected.clear();
                         ai_next_at = get_time() + 0.7;
                     }
-                    Err(error) => status = format!("Kan inte dra kort: {error}"),
+                    Err(error) => status = format!("Could not draw: {error}"),
                 }
             } else if is_key_pressed(KeyCode::P)
                 && phase != PlayerPhase::FaceDown
@@ -100,29 +103,37 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             {
                 match game.pick_up_pile() {
                     Ok(outcome) => {
-                        status = format_outcome("Du ", &outcome);
+                        status = format_outcome("You ", &outcome);
                         cursor = 0;
                         selected.clear();
                         ai_next_at = get_time() + 0.7;
                     }
-                    Err(error) => status = format!("Kan inte plocka upp högen: {error}"),
+                    Err(error) => status = format!("Could not pick up pile: {error}"),
                 }
             } else if is_key_pressed(KeyCode::Enter) && count > 0 {
-                let cards = player_cards(&game, phase);
-                let indices = selected_indices(&selected, cursor, phase, cards);
-                let result = match phase {
-                    PlayerPhase::Hand => game.play_hand_indices(&indices),
-                    PlayerPhase::FaceUp => game.play_face_up_indices(&indices),
-                    PlayerPhase::FaceDown => game.play_face_down_at(cursor),
-                };
-                match result {
-                    Ok(outcome) => {
-                        status = format_outcome("Du ", &outcome);
-                        cursor = 0;
-                        selected.clear();
-                        ai_next_at = get_time() + 0.7;
+                let indices = selected_indices(&selected, cursor, phase);
+                if phase == PlayerPhase::FaceDown {
+                    match game.play_face_down_at(cursor) {
+                        Ok(outcome) => {
+                            status = format_outcome("You ", &outcome);
+                            cursor = 0;
+                            selected.clear();
+                            ai_next_at = get_time() + 0.7;
+                        }
+                        Err(error) => status = format!("Could not turn card: {error}"),
                     }
-                    Err(error) => status = format!("Draget kunde inte spelas: {error}"),
+                } else if indices.is_empty() {
+                    status = "Select one or more cards first.".to_owned();
+                } else {
+                    play_selected(
+                        &mut game,
+                        phase,
+                        &indices,
+                        &mut selected,
+                        &mut status,
+                        &mut cursor,
+                        &mut ai_next_at,
+                    );
                 }
             }
             if is_key_pressed(KeyCode::Q) || is_key_pressed(KeyCode::Escape) {
@@ -135,10 +146,77 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     card_at_position(mouse_x, mouse_y, count, screen_width(), screen_height())
                 {
                     cursor = index;
-                    if phase != PlayerPhase::FaceDown {
+                    if phase == PlayerPhase::FaceDown {
+                        match game.play_face_down_at(index) {
+                            Ok(outcome) => {
+                                status = format_outcome("You ", &outcome);
+                                cursor = 0;
+                                ai_next_at = get_time() + 0.7;
+                            }
+                            Err(error) => status = format!("Could not turn card: {error}"),
+                        }
+                    } else {
                         toggle_selection(&mut selected, index);
-                    } else if is_key_down(KeyCode::LeftAlt) {
-                        let _ = game.play_face_down_at(index);
+                        status = selection_status(&selected);
+                    }
+                } else if phase != PlayerPhase::FaceDown
+                    && play_button_contains(mouse_x, mouse_y, screen_width(), screen_height())
+                {
+                    if selected.is_empty() {
+                        status = "Select one or more cards first.".to_owned();
+                    } else {
+                        let indices = selected.clone();
+                        play_selected(
+                            &mut game,
+                            phase,
+                            &indices,
+                            &mut selected,
+                            &mut status,
+                            &mut cursor,
+                            &mut ai_next_at,
+                        );
+                    }
+                } else if phase == PlayerPhase::Hand
+                    && draw_button_contains_at(mouse_x, mouse_y, screen_width(), screen_height())
+                {
+                    match game.draw_and_play() {
+                        Ok(outcome) => {
+                            status = format_outcome("You ", &outcome);
+                            cursor = 0;
+                            selected.clear();
+                            ai_next_at = get_time() + 0.7;
+                        }
+                        Err(error) => status = format!("Could not draw: {error}"),
+                    }
+                } else if phase != PlayerPhase::FaceDown
+                    && !game.pile().is_empty()
+                    && pickup_button_contains(mouse_x, mouse_y, screen_width(), screen_height())
+                {
+                    match game.pick_up_pile() {
+                        Ok(outcome) => {
+                            status = format_outcome("You ", &outcome);
+                            cursor = 0;
+                            selected.clear();
+                            ai_next_at = get_time() + 0.7;
+                        }
+                        Err(error) => status = format!("Could not pick up pile: {error}"),
+                    }
+                } else if phase != PlayerPhase::FaceDown
+                    && pile_target_contains(mouse_x, mouse_y, screen_width(), screen_height())
+                {
+                    if selected.is_empty() {
+                        status = "Select one or more cards first.".to_owned();
+                    } else {
+                        let indices = selected.clone();
+                        play_selected(
+                            &mut game,
+                            phase,
+                            &indices,
+                            &mut selected,
+                            &mut status,
+                            &mut cursor,
+                            &mut ai_next_at,
+                        );
                     }
                 }
             }
@@ -150,6 +228,42 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn play_selected(
+    game: &mut Game,
+    phase: PlayerPhase,
+    indices: &[usize],
+    selection: &mut Vec<usize>,
+    status: &mut String,
+    cursor: &mut usize,
+    ai_next_at: &mut f64,
+) {
+    let result = match phase {
+        PlayerPhase::Hand => game.play_hand_indices(indices),
+        PlayerPhase::FaceUp => game.play_face_up_indices(indices),
+        PlayerPhase::FaceDown => return,
+    };
+    match result {
+        Ok(outcome) => {
+            *status = format_outcome("You ", &outcome);
+            *cursor = 0;
+            selection.clear();
+            *ai_next_at = get_time() + 0.7;
+        }
+        Err(error) => *status = format!("Could not play selection: {error}"),
+    }
+}
+
+fn selection_status(selected: &[usize]) -> String {
+    if selected.is_empty() {
+        "Selection cleared.".to_owned()
+    } else {
+        format!(
+            "{} card(s) selected. Click PLAY SELECTED or the pile.",
+            selected.len()
+        )
+    }
 }
 
 fn parse_args() -> Result<(usize, u64), Box<dyn std::error::Error>> {
@@ -179,10 +293,10 @@ fn draw_screen(game: &Game, cursor: usize, selected: &[usize], status: &str) {
     let width = screen_width();
     let height = screen_height();
 
-    draw_text("VÄNDTIA", 28.0, 42.0, 34.0, GOLD);
+    draw_text("VANDTIA", 28.0, 42.0, 34.0, GOLD);
     draw_text(
         format!(
-            "Draghög: {} kort     Spelhög: {} kort",
+            "DRAW PILE: {} cards     DISCARD PILE: {} cards",
             game.draw_pile_size(),
             game.pile().len()
         ),
@@ -191,10 +305,17 @@ fn draw_screen(game: &Game, cursor: usize, selected: &[usize], status: &str) {
         22.0,
         WHITE,
     );
+    draw_text(
+        "SUITS: C=CLUBS  D=DIAMONDS  H=HEARTS  S=SPADES",
+        28.0,
+        61.0,
+        15.0,
+        LIGHTGRAY,
+    );
     let current = if game.current_player() == 0 {
-        "Din tur".to_owned()
+        "Your turn".to_owned()
     } else {
-        format!("Dator {} spelar", game.current_player() + 1)
+        format!("Player {} turn", game.current_player() + 1)
     };
     draw_text(&current, width - 210.0, 38.0, 22.0, SKYBLUE);
 
@@ -215,7 +336,7 @@ fn draw_opponents(game: &Game, width: f32) {
         draw_rectangle_lines(x, y, 220.0, 140.0, 2.0, DARKGREEN);
         draw_text(
             format!(
-                "Dator {}: {} på hand",
+                "Player {}: {} in hand",
                 player + 1,
                 game.hand_count(player).unwrap_or(0)
             ),
@@ -225,8 +346,8 @@ fn draw_opponents(game: &Game, width: f32) {
             WHITE,
         );
         let open = game.face_up(player).unwrap_or(&[]);
-        draw_text("Öppna:", x + 12.0, y + 53.0, 17.0, LIGHTGRAY);
-        for (index, card) in open.iter().enumerate() {
+        draw_text("FACE UP:", x + 12.0, y + 53.0, 17.0, LIGHTGRAY);
+        for (index, card) in open.iter().take(3).enumerate() {
             draw_card(x + 12.0 + (index as f32 * 63.0), y + 65.0, *card, false);
         }
         x += 238.0;
@@ -239,11 +360,17 @@ fn draw_opponents(game: &Game, width: f32) {
 fn draw_pile(game: &Game, width: f32, height: f32) {
     let center_x = width * 0.68;
     let center_y = height * 0.38;
-    draw_text("SPELHÖG", center_x - 65.0, center_y - 62.0, 22.0, LIGHTGRAY);
+    draw_text(
+        "DISCARD PILE - CLICK TO PLAY",
+        center_x - 145.0,
+        center_y - 62.0,
+        18.0,
+        LIGHTGRAY,
+    );
     if let Some(card) = game.pile().last() {
         draw_card(center_x - CARD_WIDTH / 2.0, center_y - 48.0, *card, false);
         draw_text(
-            format!("{} kort i högen", game.pile().len()),
+            format!("{} cards in pile", game.pile().len()),
             center_x - 75.0,
             center_y + 116.0,
             18.0,
@@ -265,7 +392,7 @@ fn draw_pile(game: &Game, width: f32, height: f32) {
             2.0,
             LIGHTGRAY,
         );
-        draw_text("Tom", center_x - 18.0, center_y + 30.0, 20.0, LIGHTGRAY);
+        draw_text("EMPTY", center_x - 27.0, center_y + 30.0, 18.0, LIGHTGRAY);
     }
 }
 
@@ -274,79 +401,231 @@ fn draw_player_cards(game: &Game, cursor: usize, selected: &[usize], width: f32,
     let cards = player_cards(game, phase);
     let count = player_card_count(game, phase);
     let title = match phase {
-        PlayerPhase::Hand => "DIN HAND",
-        PlayerPhase::FaceUp => "DINA ÖPPNA KORT",
-        PlayerPhase::FaceDown => "DINA BLINDA KORT",
+        PlayerPhase::Hand => "YOUR HAND",
+        PlayerPhase::FaceUp => "YOUR FACE-UP CARDS",
+        PlayerPhase::FaceDown => "YOUR FACE-DOWN CARDS",
     };
-    let start_y = height - CARD_HEIGHT - 92.0;
+    let start_y = height - CARD_HEIGHT - 154.0;
     draw_text(title, 28.0, start_y - 16.0, 20.0, GOLD);
-    let total_width = count as f32 * (CARD_WIDTH + CARD_GAP) - CARD_GAP;
-    let start_x = ((width - total_width) / 2.0).max(22.0);
+    let (card_width, card_gap, start_x) = card_layout(count, width);
 
     for index in 0..count {
-        let x = start_x + index as f32 * (CARD_WIDTH + CARD_GAP);
+        let x = start_x + index as f32 * (card_width + card_gap);
         let is_selected = selected.contains(&index);
-        let y = start_y - if index == cursor { 16.0 } else { 0.0 };
+        let y = start_y;
         if phase == PlayerPhase::FaceDown {
-            draw_card_back(x, y, index == cursor);
-            draw_text(format!("{}", index + 1), x + 45.0, y + 78.0, 24.0, WHITE);
-        } else if let Some(card) = cards.get(index) {
-            draw_card(x, y, *card, is_selected || index == cursor);
+            draw_card_back(x, y, card_width, index == cursor);
             draw_text(
                 format!("{}", index + 1),
-                x + 44.0,
+                x + card_width / 2.0 - 5.0,
+                y + 78.0,
+                24.0,
+                WHITE,
+            );
+        } else if let Some(card) = cards.get(index) {
+            draw_card_sized(x, y, *card, card_width, is_selected, index == cursor);
+            draw_text(
+                format!("{}", index + 1),
+                x + card_width / 2.0 - 5.0,
                 y + CARD_HEIGHT + 19.0,
                 16.0,
                 WHITE,
             );
         }
     }
+    if phase != PlayerPhase::FaceDown {
+        draw_action_buttons(game, phase, width, height, selected.len());
+    }
+}
+
+fn action_button_rects(width: f32, height: f32) -> (Rect, Rect, Rect) {
+    let scale = ((width - 24.0) / 464.0).clamp(0.0, 1.0);
+    let play_width = 180.0 * scale;
+    let other_width = 130.0 * scale;
+    let gap = 12.0 * scale;
+    let total_width = play_width + other_width * 2.0 + gap * 2.0;
+    let left = ((width - total_width) / 2.0).max(12.0);
+    let y = height - 101.0;
+    (
+        Rect::new(left, y, play_width, ACTION_BUTTON_HEIGHT),
+        Rect::new(
+            left + play_width + gap,
+            y,
+            other_width,
+            ACTION_BUTTON_HEIGHT,
+        ),
+        Rect::new(
+            left + play_width + gap + other_width + gap,
+            y,
+            other_width,
+            ACTION_BUTTON_HEIGHT,
+        ),
+    )
+}
+
+fn draw_action_buttons(
+    game: &Game,
+    phase: PlayerPhase,
+    width: f32,
+    height: f32,
+    selected_count: usize,
+) {
+    let (play, draw, pickup) = action_button_rects(width, height);
+    let play_text = if selected_count == 0 {
+        "SELECT CARDS"
+    } else {
+        "PLAY SELECTED"
+    };
+    draw_button(play, play_text, selected_count > 0);
+
+    if phase == PlayerPhase::Hand && game.draw_pile_size() > 0 {
+        draw_button(draw, "DRAW + PLAY", true);
+    } else {
+        draw_button(draw, "DRAW EMPTY", false);
+    }
+
+    if !game.pile().is_empty() && phase != PlayerPhase::FaceDown {
+        draw_button(pickup, "PICK UP", true);
+    } else {
+        draw_button(pickup, "PICK UP", false);
+    }
+}
+
+fn draw_button(rect: Rect, label: &str, enabled: bool) {
+    let fill = if enabled {
+        Color::new(0.13, 0.4, 0.28, 1.0)
+    } else {
+        Color::new(0.16, 0.19, 0.18, 1.0)
+    };
+    draw_rectangle(rect.x, rect.y, rect.w, rect.h, fill);
+    draw_rectangle_lines(
+        rect.x,
+        rect.y,
+        rect.w,
+        rect.h,
+        2.0,
+        if enabled { GOLD } else { DARKGRAY },
+    );
+    let text_width = measure_text(label, None, 16, 1.0).width;
+    let font_size = (16.0 * (rect.w * 0.9 / text_width)).clamp(8.0, 16.0);
+    draw_text(
+        label,
+        rect.x + (rect.w - text_width * font_size / 16.0) / 2.0,
+        rect.y + (rect.h + font_size * 0.62) / 2.0,
+        font_size,
+        if enabled { WHITE } else { LIGHTGRAY },
+    );
+}
+
+fn draw_button_contains(rect: Rect, x: f32, y: f32) -> bool {
+    x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h
+}
+
+fn play_button_contains(x: f32, y: f32, width: f32, height: f32) -> bool {
+    draw_button_contains(action_button_rects(width, height).0, x, y)
+}
+
+fn draw_button_contains_at(x: f32, y: f32, width: f32, height: f32) -> bool {
+    draw_button_contains(action_button_rects(width, height).1, x, y)
+}
+
+fn pickup_button_contains(x: f32, y: f32, width: f32, height: f32) -> bool {
+    draw_button_contains(action_button_rects(width, height).2, x, y)
+}
+
+fn pile_target_contains(x: f32, y: f32, width: f32, height: f32) -> bool {
+    let center_x = width * 0.68;
+    let center_y = height * 0.38;
+    x >= center_x - CARD_WIDTH / 2.0
+        && x <= center_x + CARD_WIDTH / 2.0
+        && y >= center_y - 48.0
+        && y <= center_y - 48.0 + CARD_HEIGHT
+}
+
+fn card_layout(count: usize, screen_width: f32) -> (f32, f32, f32) {
+    let available_width = (screen_width - 44.0).max(1.0);
+    if count == 0 {
+        return (CARD_WIDTH, CARD_GAP, 22.0);
+    }
+    let count_f = count as f32;
+    let card_width = CARD_WIDTH.min(available_width);
+    let gap = if count > 1 && count_f * (card_width + CARD_GAP) - CARD_GAP > available_width {
+        (available_width - card_width * count_f) / (count_f - 1.0)
+    } else if count > 1 {
+        CARD_GAP
+    } else {
+        0.0
+    };
+    let total_width = count_f * card_width + (count_f - 1.0).max(0.0) * gap;
+    let start_x = ((screen_width - total_width) / 2.0).max(8.0);
+    (card_width, gap, start_x)
 }
 
 fn draw_controls(game: &Game, status: &str, width: f32, height: f32) {
-    let panel_y = height - 63.0;
-    draw_rectangle(0.0, panel_y - 8.0, width, 72.0, PANEL_COLOR);
+    let panel_y = height - 43.0;
+    draw_rectangle(0.0, panel_y - 6.0, width, 52.0, PANEL_COLOR);
     draw_text(status, 20.0, panel_y + 12.0, 18.0, YELLOW);
     let phase = game.player_phase(0).unwrap_or(PlayerPhase::FaceDown);
     let controls = match phase {
         PlayerPhase::Hand => {
-            "←/→ välj  ·  Enter spela  ·  Space markera  ·  D dra  ·  P plocka upp  ·  Q avsluta"
+            "LEFT/RIGHT: MOVE  SPACE: TOGGLE  ENTER: PLAY  D: DRAW  P: PICK UP  Q: QUIT"
         }
-        PlayerPhase::FaceUp => {
-            "←/→ välj  ·  Enter spela  ·  Space markera  ·  P plocka upp  ·  Q avsluta"
-        }
-        PlayerPhase::FaceDown => "←/→ välj kort  ·  Enter vänd  ·  Q avsluta",
+        PlayerPhase::FaceUp => "LEFT/RIGHT: MOVE  SPACE: TOGGLE  ENTER: PLAY  P: PICK UP  Q: QUIT",
+        PlayerPhase::FaceDown => "LEFT/RIGHT: MOVE  ENTER: REVEAL  Q: QUIT",
     };
-    draw_text(controls, 20.0, panel_y + 42.0, 16.0, LIGHTGRAY);
+    draw_text(controls, 20.0, panel_y + 34.0, 14.0, LIGHTGRAY);
 }
 
 fn draw_card(x: f32, y: f32, card: Card, highlighted: bool) {
-    let fill = if highlighted {
+    draw_card_sized(x, y, card, CARD_WIDTH, highlighted, false);
+}
+
+fn draw_card_sized(x: f32, y: f32, card: Card, width: f32, selected: bool, focused: bool) {
+    let fill = if selected {
         Color::new(1.0, 0.96, 0.78, 1.0)
     } else {
         WHITE
     };
-    let outline = if highlighted { GOLD } else { LIGHTGRAY };
-    draw_rectangle(x, y, CARD_WIDTH, CARD_HEIGHT, fill);
-    draw_rectangle_lines(x, y, CARD_WIDTH, CARD_HEIGHT, 3.0, outline);
-    let color = suit_color(card.suit);
-    draw_text(rank_label(card.rank), x + 9.0, y + 28.0, 25.0, BLACK);
-    draw_text(suit_symbol(card.suit), x + 8.0, y + 53.0, 23.0, color);
-    draw_text(suit_symbol(card.suit), x + 35.0, y + 94.0, 42.0, color);
-}
-
-fn draw_card_back(x: f32, y: f32, highlighted: bool) {
-    let color = Color::new(0.12, 0.28, 0.62, 1.0);
-    draw_rectangle(x, y, CARD_WIDTH, CARD_HEIGHT, color);
+    let outline = if selected {
+        GREEN
+    } else if focused {
+        GOLD
+    } else {
+        LIGHTGRAY
+    };
+    draw_rectangle(x, y, width, CARD_HEIGHT, fill);
     draw_rectangle_lines(
         x,
         y,
-        CARD_WIDTH,
+        width,
+        CARD_HEIGHT,
+        if selected || focused { 4.0 } else { 2.0 },
+        outline,
+    );
+    let color = suit_color(card.suit);
+    draw_text(rank_label(card.rank), x + 8.0, y + 26.0, 23.0, BLACK);
+    draw_text(suit_letter(card.suit), x + 8.0, y + 47.0, 20.0, color);
+    draw_text(
+        suit_letter(card.suit),
+        x + width / 2.0 - 13.0,
+        y + 94.0,
+        38.0,
+        color,
+    );
+}
+
+fn draw_card_back(x: f32, y: f32, width: f32, highlighted: bool) {
+    let color = Color::new(0.12, 0.28, 0.62, 1.0);
+    draw_rectangle(x, y, width, CARD_HEIGHT, color);
+    draw_rectangle_lines(
+        x,
+        y,
+        width,
         CARD_HEIGHT,
         if highlighted { 4.0 } else { 2.0 },
         if highlighted { GOLD } else { WHITE },
     );
-    draw_text("✦", x + 34.0, y + 79.0, 34.0, WHITE);
+    draw_text("CARD", x + width / 2.0 - 19.0, y + 79.0, 17.0, WHITE);
 }
 
 fn card_at_position(
@@ -356,15 +635,12 @@ fn card_at_position(
     width: f32,
     height: f32,
 ) -> Option<usize> {
-    let start_y = height - CARD_HEIGHT - 92.0;
-    let total_width = count as f32 * (CARD_WIDTH + CARD_GAP) - CARD_GAP;
-    let start_x = ((width - total_width) / 2.0).max(22.0);
-    if mouse_y < start_y - 18.0 || mouse_y > start_y + CARD_HEIGHT {
-        return None;
-    }
-    (0..count).find(|index| {
-        let x = start_x + *index as f32 * (CARD_WIDTH + CARD_GAP);
-        mouse_x >= x && mouse_x <= x + CARD_WIDTH
+    let (card_width, gap, start_x) = card_layout(count, width);
+    let start_y = height - CARD_HEIGHT - 154.0;
+    (0..count).rev().find(|index| {
+        let x = start_x + *index as f32 * (card_width + gap);
+        let y = start_y;
+        mouse_x >= x && mouse_x <= x + card_width && mouse_y >= y && mouse_y <= y + CARD_HEIGHT
     })
 }
 
@@ -384,26 +660,11 @@ fn player_card_count(game: &Game, phase: PlayerPhase) -> usize {
     }
 }
 
-fn selected_indices(
-    selected: &[usize],
-    cursor: usize,
-    phase: PlayerPhase,
-    cards: &[Card],
-) -> Vec<usize> {
-    if !selected.is_empty() {
-        return selected.to_vec();
-    }
+fn selected_indices(selected: &[usize], cursor: usize, phase: PlayerPhase) -> Vec<usize> {
     if phase == PlayerPhase::FaceDown {
         return vec![cursor];
     }
-    let Some(card) = cards.get(cursor) else {
-        return Vec::new();
-    };
-    cards
-        .iter()
-        .enumerate()
-        .filter_map(|(index, other)| (other.rank == card.rank).then_some(index))
-        .collect()
+    selected.to_vec()
 }
 
 fn toggle_selection(selected: &mut Vec<usize>, index: usize) {
@@ -421,9 +682,9 @@ fn toggle_selection(selected: &mut Vec<usize>, index: usize) {
 fn format_outcome(actor: &str, outcome: &TurnOutcome) -> String {
     let mut message = if let Some(card) = outcome.drawn {
         if outcome.played.is_some() {
-            format!("{actor}drog och spelade {}.", format_card(card))
+            format!("{actor}drew and played {}.", format_card(card))
         } else {
-            format!("{actor}drog {}, tog upp högen.", format_card(card))
+            format!("{actor}drew {}, picked up the pile.", format_card(card))
         }
     } else if !outcome.played_cards.is_empty() {
         let cards = outcome
@@ -431,26 +692,26 @@ fn format_outcome(actor: &str, outcome: &TurnOutcome) -> String {
             .iter()
             .map(|card| format_card(*card))
             .collect::<Vec<_>>()
-            .join(" och ");
-        format!("{actor}spelade {cards}.")
+            .join(" and ");
+        format!("{actor}played {cards}.")
     } else if let Some(card) = outcome.played {
-        format!("{actor}vände {}.", format_card(card))
+        format!("{actor}turned over {}.", format_card(card))
     } else {
-        format!("{actor}plockade upp högen.")
+        format!("{actor}picked up the pile.")
     };
     if outcome.burned {
-        message.push_str(" Högen vänds bort — extra tur!");
+        message.push_str(" Pile cleared - extra turn!");
     } else if outcome.extra_turn {
-        message.push_str(" Extra tur!");
+        message.push_str(" Extra turn!");
     }
     if outcome.picked_up > 0 && outcome.drawn.is_none() {
-        message.push_str(&format!(" Tog upp {} kort.", outcome.picked_up));
+        message.push_str(&format!(" Picked up {} cards.", outcome.picked_up));
     }
     message
 }
 
 fn format_card(card: Card) -> String {
-    format!("{}{}", rank_label(card.rank), suit_symbol(card.suit))
+    format!("{} {}", rank_label(card.rank), suit_letter(card.suit))
 }
 
 fn rank_label(rank: Rank) -> &'static str {
@@ -471,12 +732,12 @@ fn rank_label(rank: Rank) -> &'static str {
     }
 }
 
-fn suit_symbol(suit: Suit) -> &'static str {
+fn suit_letter(suit: Suit) -> &'static str {
     match suit {
-        Suit::Clubs => "♣",
-        Suit::Diamonds => "♦",
-        Suit::Hearts => "♥",
-        Suit::Spades => "♠",
+        Suit::Clubs => "C",
+        Suit::Diamonds => "D",
+        Suit::Hearts => "H",
+        Suit::Spades => "S",
     }
 }
 
@@ -491,34 +752,77 @@ fn suit_color(suit: Suit) -> Color {
 mod tests {
     use super::*;
 
-    fn card(rank: Rank, suit: Suit) -> Card {
-        Card { rank, suit }
-    }
-
     #[test]
-    fn enter_selection_includes_matching_ranks() {
-        let cards = [
-            card(Rank::Seven, Suit::Clubs),
-            card(Rank::Ace, Suit::Hearts),
-            card(Rank::Seven, Suit::Spades),
-        ];
+    fn enter_uses_only_toggled_cards() {
         assert_eq!(
-            selected_indices(&[], 0, PlayerPhase::Hand, &cards),
-            vec![0, 2]
+            selected_indices(&[], 0, PlayerPhase::Hand),
+            Vec::<usize>::new()
         );
-        assert_eq!(
-            selected_indices(&[1, 2], 0, PlayerPhase::Hand, &cards),
-            vec![1, 2]
-        );
-        assert_eq!(
-            selected_indices(&[], 2, PlayerPhase::FaceDown, &[]),
-            vec![2]
-        );
+        assert_eq!(selected_indices(&[1, 2], 0, PlayerPhase::Hand), vec![1, 2]);
+        assert_eq!(selected_indices(&[], 2, PlayerPhase::FaceDown), vec![2]);
     }
 
     #[test]
     fn mouse_position_selects_card_bounds() {
         assert_eq!(card_at_position(250.0, 530.0, 3, 800.0, 760.0), Some(0));
         assert_eq!(card_at_position(340.0, 530.0, 3, 800.0, 760.0), None);
+    }
+
+    #[test]
+    fn overlapping_cards_remain_individually_selectable() {
+        let count = 30;
+        let width = 800.0;
+        let height = 760.0;
+        let (card_width, gap, start_x) = card_layout(count, width);
+        let step = card_width + gap;
+        let y = height - CARD_HEIGHT - 154.0 + CARD_HEIGHT / 2.0;
+
+        assert!(step > 0.0);
+        for index in 0..count {
+            let x = start_x + index as f32 * step;
+            let click_x = if index + 1 == count {
+                x + 5.0
+            } else {
+                x + step / 2.0
+            };
+            assert_eq!(
+                card_at_position(click_x, y, count, width, height),
+                Some(index)
+            );
+        }
+    }
+
+    #[test]
+    fn action_button_hit_regions_match_their_layout() {
+        for width in [360.0, 800.0, 1100.0] {
+            let height = 760.0;
+            let (play, draw, pickup) = action_button_rects(width, height);
+            let center_y = play.y + play.h / 2.0;
+
+            assert!(play_button_contains(
+                play.x + play.w / 2.0,
+                center_y,
+                width,
+                height
+            ));
+            assert!(draw_button_contains_at(
+                draw.x + draw.w / 2.0,
+                center_y,
+                width,
+                height
+            ));
+            assert!(pickup_button_contains(
+                pickup.x + pickup.w / 2.0,
+                center_y,
+                width,
+                height
+            ));
+            assert!(!play_button_contains(
+                draw.x + draw.w / 2.0,
+                center_y,
+                width,
+                height
+            ));
+        }
     }
 }
