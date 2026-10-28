@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Vändtia!</title>
+    <style>
+        html, body, canvas {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            width: 100dvw;
+            height: 100vh;
+            height: 100dvh;
+            overflow: hidden;
+            position: absolute;
+            inset: 0;
+            background: black;
+        }
+
+        canvas {
+            touch-action: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="glcanvas" tabindex="1"></canvas>
+    <script src="gl.js"></script>
+    <script>load("vandtia-graphics.wasm");</script>
+</body>
+</html>
