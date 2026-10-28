@@ -361,20 +361,7 @@ fn opponent_columns(opponent_count: usize, width: f32) -> usize {
 }
 
 fn draw_compact_card(x: f32, y: f32, card: Card) {
-    const WIDTH: f32 = 54.0;
-    const HEIGHT: f32 = 78.0;
-    let color = suit_color(card.suit);
-    draw_rectangle(x, y, WIDTH, HEIGHT, WHITE);
-    draw_rectangle_lines(x, y, WIDTH, HEIGHT, 1.0, LIGHTGRAY);
-    draw_text(rank_label(card.rank), x + 5.0, y + 17.0, 15.0, BLACK);
-    draw_text(suit_letter(card.suit), x + 5.0, y + 33.0, 14.0, color);
-    draw_text(
-        suit_letter(card.suit),
-        x + WIDTH / 2.0 - 8.0,
-        y + 62.0,
-        24.0,
-        color,
-    );
+    draw_card_at_size(x, y, card, 54.0, 78.0, false, false);
 }
 
 fn draw_pile(game: &Game, width: f32, height: f32) {
@@ -602,6 +589,19 @@ fn draw_card(x: f32, y: f32, card: Card, highlighted: bool) {
 }
 
 fn draw_card_sized(x: f32, y: f32, card: Card, width: f32, selected: bool, focused: bool) {
+    draw_card_at_size(x, y, card, width, CARD_HEIGHT, selected, focused);
+}
+
+fn draw_card_at_size(
+    x: f32,
+    y: f32,
+    card: Card,
+    width: f32,
+    height: f32,
+    selected: bool,
+    focused: bool,
+) {
+    let scale = height / CARD_HEIGHT;
     let suit = suit_color(card.suit);
     let paper = if selected {
         Color::new(1.0, 0.95, 0.72, 1.0)
@@ -615,47 +615,75 @@ fn draw_card_sized(x: f32, y: f32, card: Card, width: f32, selected: bool, focus
     } else {
         Color::new(0.12, 0.16, 0.2, 1.0)
     };
-    draw_rectangle(x, y, width, CARD_HEIGHT, edge);
-    draw_rectangle(x + 3.0, y + 3.0, width - 6.0, CARD_HEIGHT - 6.0, paper);
-    draw_rectangle(x + 7.0, y + 7.0, width - 14.0, 4.0, suit);
-    draw_rectangle(x + 7.0, y + CARD_HEIGHT - 11.0, width - 14.0, 4.0, suit);
+    draw_rectangle(x, y, width, height, edge);
+    draw_rectangle(
+        x + 3.0 * scale,
+        y + 3.0 * scale,
+        width - 6.0 * scale,
+        height - 6.0 * scale,
+        paper,
+    );
+    draw_rectangle(
+        x + 7.0 * scale,
+        y + 7.0 * scale,
+        width - 14.0 * scale,
+        4.0 * scale,
+        suit,
+    );
+    draw_rectangle(
+        x + 7.0 * scale,
+        y + height - 11.0 * scale,
+        width - 14.0 * scale,
+        4.0 * scale,
+        suit,
+    );
     draw_pixel_text(
         rank_label(card.rank),
-        x + 10.0,
-        y + 17.0,
-        3.0,
+        x + 10.0 * scale,
+        y + 17.0 * scale,
+        3.0 * scale,
         Color::new(0.08, 0.1, 0.13, 1.0),
     );
     draw_pixel_pattern(
-        x + width - 21.0,
-        y + 10.0,
-        2.0,
+        x + width - 21.0 * scale,
+        y + 10.0 * scale,
+        2.0 * scale,
         suit_pattern(card.suit),
         suit,
     );
 
     if has_face_portrait(card.rank) {
-        draw_card_mascot(x + width / 2.0 - 17.5, y + 48.0, card.rank);
+        draw_card_mascot(
+            x + width / 2.0 - 17.5 * scale,
+            y + 48.0 * scale,
+            card.rank,
+            scale,
+        );
     } else if card.rank == Rank::Ace {
-        draw_card_mascot(x + width / 2.0 - 17.5, y + 55.0, card.rank);
+        draw_card_mascot(
+            x + width / 2.0 - 17.5 * scale,
+            y + 55.0 * scale,
+            card.rank,
+            scale,
+        );
     } else {
         let label = rank_label(card.rank);
         let columns = label.chars().count() * 3 + label.len().saturating_sub(1);
-        let rank_pixel = ((width - 20.0) / columns as f32).clamp(3.0, 10.0);
+        let rank_pixel = ((width - 20.0 * scale) / columns as f32).clamp(3.0 * scale, 10.0 * scale);
         let rank_width = pixel_text_width(label, rank_pixel);
         draw_pixel_text(
             label,
             x + (width - rank_width) / 2.0,
-            y + 53.0,
+            y + 53.0 * scale,
             rank_pixel,
             Color::new(0.08, 0.1, 0.13, 1.0),
         );
     }
 
     draw_pixel_pattern(
-        x + width / 2.0 - 10.5,
-        y + 119.0,
-        1.5,
+        x + width / 2.0 - 10.5 * scale,
+        y + 119.0 * scale,
+        1.5 * scale,
         suit_pattern(card.suit),
         suit,
     );
@@ -739,104 +767,126 @@ fn draw_pixel_pattern(x: f32, y: f32, pixel: f32, rows: &[u8], color: Color) {
     }
 }
 
-fn draw_card_mascot(x: f32, y: f32, rank: Rank) {
+fn draw_card_mascot(x: f32, y: f32, rank: Rank, scale: f32) {
+    macro_rules! pattern {
+        ($dx:expr, $dy:expr, $pixel:expr, $rows:expr, $color:expr $(,)?) => {
+            draw_pixel_pattern(
+                x + $dx * scale,
+                y + $dy * scale,
+                $pixel * scale,
+                $rows,
+                $color,
+            )
+        };
+    }
+    macro_rules! rect {
+        ($dx:expr, $dy:expr, $width:expr, $height:expr, $color:expr) => {
+            draw_rectangle(
+                x + $dx * scale,
+                y + $dy * scale,
+                $width * scale,
+                $height * scale,
+                $color,
+            )
+        };
+    }
     let ink = Color::new(0.1, 0.13, 0.17, 1.0);
     let skin = Color::new(1.0, 0.69, 0.31, 1.0);
     match rank {
         Rank::Ace => {
-            draw_pixel_pattern(
-                x + 3.0,
-                y + 2.0,
+            pattern!(
+                3.0,
+                2.0,
                 4.0,
                 &[
                     0b0001000, 0b0011100, 0b1111111, 0b0111110, 0b0111110, 0b0011100, 0b0011100,
                 ],
                 GOLD,
             );
-            draw_rectangle(x + 14.0, y + 16.0, 4.0, 4.0, WHITE);
+            rect!(14.0, 16.0, 4.0, 4.0, WHITE);
         }
         Rank::Jack => {
             let tunic = Color::new(0.15, 0.44, 0.72, 1.0);
-            draw_pixel_pattern(x + 3.0, y, 4.0, &[0b0010000, 0b0111000, 0b1111111], GOLD);
-            draw_pixel_pattern(x + 3.0, y + 11.0, 4.0, &[0b0011100, 0b0111110], ink);
-            draw_pixel_pattern(
-                x + 3.0,
-                y + 19.0,
+            pattern!(3.0, 0.0, 4.0, &[0b0010000, 0b0111000, 0b1111111], GOLD);
+            pattern!(3.0, 11.0, 4.0, &[0b0011100, 0b0111110], ink);
+            pattern!(
+                3.0,
+                19.0,
                 4.0,
                 &[0b0111110, 0b1111111, 0b1111111, 0b1111111, 0b0111110],
                 skin,
             );
-            draw_rectangle(x + 10.0, y + 27.0, 4.0, 4.0, ink);
-            draw_rectangle(x + 22.0, y + 27.0, 4.0, 4.0, ink);
-            draw_pixel_pattern(x + 11.0, y + 39.0, 4.0, &[0b0001000, 0b0011100], skin);
-            draw_pixel_pattern(
-                x,
-                y + 47.0,
+            rect!(10.0, 27.0, 4.0, 4.0, ink);
+            rect!(22.0, 27.0, 4.0, 4.0, ink);
+            pattern!(11.0, 39.0, 4.0, &[0b0001000, 0b0011100], skin);
+            pattern!(
+                0.0,
+                47.0,
                 4.0,
                 &[0b0010000, 0b0111110, 0b1111111, 0b1111111, 0b1111111],
                 tunic,
             );
-            draw_rectangle(x + 15.0, y + 47.0, 4.0, 16.0, GOLD);
+            rect!(15.0, 47.0, 4.0, 16.0, GOLD);
         }
         Rank::Queen => {
             let hair = Color::new(0.55, 0.16, 0.39, 1.0);
-            draw_pixel_pattern(x + 3.0, y, 4.0, &[0b1010101, 0b1111111], GOLD);
-            draw_pixel_pattern(
-                x + 3.0,
-                y + 9.0,
+            pattern!(3.0, 0.0, 4.0, &[0b1010101, 0b1111111], GOLD);
+            pattern!(
+                3.0,
+                9.0,
                 4.0,
                 &[
                     0b0111110, 0b1111111, 0b1111111, 0b1111111, 0b0111110, 0b0111110,
                 ],
                 hair,
             );
-            draw_pixel_pattern(
-                x + 7.0,
-                y + 17.0,
+            pattern!(
+                7.0,
+                17.0,
                 4.0,
                 &[0b0011100, 0b0111110, 0b0111110, 0b0111110],
                 skin,
             );
-            draw_rectangle(x + 11.0, y + 29.0, 4.0, 4.0, ink);
-            draw_rectangle(x + 21.0, y + 29.0, 4.0, 4.0, ink);
-            draw_pixel_pattern(x + 11.0, y + 38.0, 4.0, &[0b0111110, 0b0011100], PINK);
-            draw_pixel_pattern(
-                x,
-                y + 46.0,
+            rect!(11.0, 29.0, 4.0, 4.0, ink);
+            rect!(21.0, 29.0, 4.0, 4.0, ink);
+            pattern!(11.0, 38.0, 4.0, &[0b0111110, 0b0011100], PINK);
+            pattern!(
+                0.0,
+                46.0,
                 4.0,
                 &[0b0010000, 0b0111110, 0b1111111, 0b1111111, 0b1111111],
                 hair,
             );
-            draw_pixel_pattern(x + 14.0, y + 47.0, 4.0, &[0b0011100, 0b0011100], GOLD);
+            pattern!(14.0, 47.0, 4.0, &[0b0011100, 0b0011100], GOLD);
         }
         Rank::King => {
             let beard = Color::new(0.42, 0.22, 0.11, 1.0);
             let robe = Color::new(0.43, 0.2, 0.58, 1.0);
-            draw_pixel_pattern(x + 3.0, y, 4.0, &[0b1010101, 0b1111111, 0b1111111], GOLD);
-            draw_pixel_pattern(
-                x + 3.0,
-                y + 13.0,
+            pattern!(3.0, 0.0, 4.0, &[0b1010101, 0b1111111, 0b1111111], GOLD);
+            pattern!(
+                3.0,
+                13.0,
                 4.0,
                 &[0b0111110, 0b1111111, 0b1111111, 0b1111111, 0b0111110],
                 skin,
             );
-            draw_rectangle(x + 10.0, y + 25.0, 4.0, 4.0, ink);
-            draw_rectangle(x + 22.0, y + 25.0, 4.0, 4.0, ink);
-            draw_pixel_pattern(
-                x + 7.0,
-                y + 32.0,
+            rect!(10.0, 25.0, 4.0, 4.0, ink);
+            rect!(22.0, 25.0, 4.0, 4.0, ink);
+            pattern!(
+                7.0,
+                32.0,
                 4.0,
                 &[0b0111110, 0b0111110, 0b0011100, 0b0011100],
                 beard,
             );
-            draw_pixel_pattern(
-                x,
-                y + 48.0,
+            pattern!(
+                0.0,
+                48.0,
                 4.0,
                 &[0b0010000, 0b0111110, 0b1111111, 0b1111111, 0b1111111],
                 robe,
             );
-            draw_pixel_pattern(x + 15.0, y + 49.0, 4.0, &[0b0011100, 0b0011100], GOLD);
+            pattern!(15.0, 49.0, 4.0, &[0b0011100, 0b0011100], GOLD);
         }
         _ => (),
     }
