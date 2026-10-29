@@ -5,38 +5,14 @@
 //! lets that player take another turn. Players refill their hands to three
 //! cards while the draw pile lasts.
 
+pub mod cards;
 pub mod simulator;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Rank {
-    Two,
-    Three,
-    Four,
-    Five,
-    Six,
-    Seven,
-    Eight,
-    Nine,
-    Ten,
-    Jack,
-    Queen,
-    King,
-    Ace,
-}
+#[cfg(feature = "graphics")]
+pub mod card_renderer;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Suit {
-    Clubs,
-    Diamonds,
-    Hearts,
-    Spades,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Card {
-    pub rank: Rank,
-    pub suit: Suit,
-}
+use cards::standard_deck;
+pub use cards::{Card, Rank, Suit};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerPhase {
@@ -127,7 +103,7 @@ impl Game {
         }
 
         let mut rng = SimpleRng::new(seed);
-        let mut deck = fresh_deck();
+        let mut deck = standard_deck();
         for i in (1..deck.len()).rev() {
             let j = rng.index(i + 1);
             deck.swap(i, j);
@@ -459,29 +435,6 @@ impl Game {
     fn advance_turn(&mut self) {
         self.current_player = (self.current_player + 1) % self.players.len();
     }
-}
-
-fn fresh_deck() -> Vec<Card> {
-    let ranks = [
-        Rank::Two,
-        Rank::Three,
-        Rank::Four,
-        Rank::Five,
-        Rank::Six,
-        Rank::Seven,
-        Rank::Eight,
-        Rank::Nine,
-        Rank::Ten,
-        Rank::Jack,
-        Rank::Queen,
-        Rank::King,
-        Rank::Ace,
-    ];
-    let suits = [Suit::Clubs, Suit::Diamonds, Suit::Hearts, Suit::Spades];
-    suits
-        .into_iter()
-        .flat_map(|suit| ranks.map(|rank| Card { rank, suit }))
-        .collect()
 }
 
 #[derive(Debug, Clone)]

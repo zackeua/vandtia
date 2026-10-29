@@ -3,12 +3,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, process};
 
 use macroquad::prelude::*;
+use vandtia::card_renderer::{self, CARD_HEIGHT, CARD_WIDTH, CardStyle};
 use vandtia::{Card, Game, PlayerPhase, Rank, Suit, TurnOutcome, simulator::play_computer_turn};
 
-const CARD_WIDTH: f32 = 100.0;
-const CARD_HEIGHT: f32 = 142.0;
 const CARD_GAP: f32 = 14.0;
 const ACTION_BUTTON_HEIGHT: f32 = 38.0;
+const NEXT_TURN_DELAY: f64 = 0.7;
+const INITIAL_STATUS: &str = "Markera kort och klicka på SPELA MARKERADE eller spelhögen.";
 const TABLE_COLOR: Color = Color::new(0.05, 0.28, 0.19, 1.0);
 const PANEL_COLOR: Color = Color::new(0.02, 0.12, 0.09, 1.0);
 
@@ -35,7 +36,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut game_session = None;
     let mut cursor = 0usize;
     let mut selected = Vec::new();
-    let mut status = String::from("Markera kort och klicka på SPELA MARKERADE eller spelhögen.");
+    let mut status = INITIAL_STATUS.to_owned();
     let mut ai_next_at = 0.0;
 
     loop {
@@ -80,10 +81,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         if game.winner().is_none() && current_player != 0 && get_time() >= ai_next_at {
             match play_computer_turn(game) {
                 Ok(outcome) => {
-                    status = format_outcome(&format!("Bot {} ", current_player + 1), &outcome);
-                    ai_next_at = get_time() + 0.7;
-                    cursor = 0;
-                    selected.clear();
+                    record_successful_turn(
+                        outcome,
+                        &format!("Bot {} ", current_player + 1),
+                        &mut status,
+                        &mut cursor,
+                        &mut selected,
+                        &mut ai_next_at,
+                    );
                 }
                 Err(error) => return Err(error.into()),
             }
@@ -100,8 +105,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 game_session = None;
                 cursor = 0;
                 selected.clear();
-                status =
-                    String::from("Markera kort och klicka på SPELA MARKERADE eller spelhögen.");
+                status = INITIAL_STATUS.to_owned();
                 ai_next_at = 0.0;
             }
             if is_key_pressed(KeyCode::Q) || is_key_pressed(KeyCode::Escape) {
@@ -136,10 +140,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             if is_key_pressed(KeyCode::D) && phase == PlayerPhase::Hand {
                 match game.draw_and_play() {
                     Ok(outcome) => {
-                        status = format_outcome("Du ", &outcome);
-                        cursor = 0;
-                        selected.clear();
-                        ai_next_at = get_time() + 0.7;
+                        record_successful_turn(
+                            outcome,
+                            "Du ",
+                            &mut status,
+                            &mut cursor,
+                            &mut selected,
+                            &mut ai_next_at,
+                        );
                     }
                     Err(error) => status = format!("Kunde inte dra kort: {error}"),
                 }
@@ -149,10 +157,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             {
                 match game.pick_up_pile() {
                     Ok(outcome) => {
-                        status = format_outcome("Du ", &outcome);
-                        cursor = 0;
-                        selected.clear();
-                        ai_next_at = get_time() + 0.7;
+                        record_successful_turn(
+                            outcome,
+                            "Du ",
+                            &mut status,
+                            &mut cursor,
+                            &mut selected,
+                            &mut ai_next_at,
+                        );
                     }
                     Err(error) => status = format!("Kunde inte ta upp spelhögen: {error}"),
                 }
@@ -161,10 +173,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 if phase == PlayerPhase::FaceDown {
                     match game.play_face_down_at(cursor) {
                         Ok(outcome) => {
-                            status = format_outcome("Du ", &outcome);
-                            cursor = 0;
-                            selected.clear();
-                            ai_next_at = get_time() + 0.7;
+                            record_successful_turn(
+                                outcome,
+                                "Du ",
+                                &mut status,
+                                &mut cursor,
+                                &mut selected,
+                                &mut ai_next_at,
+                            );
                         }
                         Err(error) => status = format!("Kunde inte vända kortet: {error}"),
                     }
@@ -196,9 +212,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     if phase == PlayerPhase::FaceDown {
                         match game.play_face_down_at(index) {
                             Ok(outcome) => {
-                                status = format_outcome("Du ", &outcome);
-                                cursor = 0;
-                                ai_next_at = get_time() + 0.7;
+                                record_successful_turn(
+                                    outcome,
+                                    "Du ",
+                                    &mut status,
+                                    &mut cursor,
+                                    &mut selected,
+                                    &mut ai_next_at,
+                                );
                             }
                             Err(error) => status = format!("Kunde inte vända kortet: {error}"),
                         }
@@ -228,10 +249,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 {
                     match game.draw_and_play() {
                         Ok(outcome) => {
-                            status = format_outcome("Du ", &outcome);
-                            cursor = 0;
-                            selected.clear();
-                            ai_next_at = get_time() + 0.7;
+                            record_successful_turn(
+                                outcome,
+                                "Du ",
+                                &mut status,
+                                &mut cursor,
+                                &mut selected,
+                                &mut ai_next_at,
+                            );
                         }
                         Err(error) => status = format!("Kunde inte dra kort: {error}"),
                     }
@@ -241,10 +266,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 {
                     match game.pick_up_pile() {
                         Ok(outcome) => {
-                            status = format_outcome("Du ", &outcome);
-                            cursor = 0;
-                            selected.clear();
-                            ai_next_at = get_time() + 0.7;
+                            record_successful_turn(
+                                outcome,
+                                "Du ",
+                                &mut status,
+                                &mut cursor,
+                                &mut selected,
+                                &mut ai_next_at,
+                            );
                         }
                         Err(error) => status = format!("Kunde inte ta upp spelhögen: {error}"),
                     }
@@ -293,13 +322,24 @@ fn play_selected(
     };
     match result {
         Ok(outcome) => {
-            *status = format_outcome("Du ", &outcome);
-            *cursor = 0;
-            selection.clear();
-            *ai_next_at = get_time() + 0.7;
+            record_successful_turn(outcome, "Du ", status, cursor, selection, ai_next_at);
         }
         Err(error) => *status = format!("Kunde inte spela de markerade korten: {error}"),
     }
+}
+
+fn record_successful_turn(
+    outcome: TurnOutcome,
+    actor: &str,
+    status: &mut String,
+    cursor: &mut usize,
+    selection: &mut Vec<usize>,
+    ai_next_at: &mut f64,
+) {
+    *status = format_outcome(actor, &outcome);
+    *cursor = 0;
+    selection.clear();
+    *ai_next_at = get_time() + NEXT_TURN_DELAY;
 }
 
 fn selection_status(selected: &[usize]) -> String {
@@ -552,10 +592,14 @@ fn draw_player_tables(game: &Game, width: f32) {
             let card_x = x + 12.0 + slot as f32 * 58.0;
             let card_y = y + 48.0;
             if has_face_down {
-                draw_card_back_at_size(card_x, card_y + 5.0, 54.0, 78.0, false);
+                card_renderer::draw_back(Rect::new(card_x, card_y + 5.0, 54.0, 78.0), false);
             }
             if let Some(card) = face_up_card {
-                draw_compact_card(card_x, card_y, card);
+                card_renderer::draw_face(
+                    Rect::new(card_x, card_y, 54.0, 78.0),
+                    card,
+                    CardStyle::default(),
+                );
             }
         }
     }
@@ -571,10 +615,6 @@ fn table_stack_layers(face_up: &[Card], face_down_count: usize) -> [(bool, Optio
     std::array::from_fn(|index| (index < face_down_count, face_up.get(index).copied()))
 }
 
-fn draw_compact_card(x: f32, y: f32, card: Card) {
-    draw_card_at_size(x, y, card, 54.0, 78.0, false, false);
-}
-
 fn draw_pile(game: &Game, width: f32, height: f32) {
     let pile = pile_card_rect(width, height);
     let center_x = pile.x + pile.w / 2.0;
@@ -586,7 +626,7 @@ fn draw_pile(game: &Game, width: f32, height: f32) {
         LIGHTGRAY,
     );
     if let Some(card) = game.pile().last() {
-        draw_card(pile.x, pile.y, *card, false);
+        card_renderer::draw_face(pile, *card, CardStyle::default());
         draw_text(
             format!("{} kort i spelhögen", game.pile().len()),
             center_x - 75.0,
@@ -637,7 +677,7 @@ fn draw_player_cards(game: &Game, cursor: usize, selected: &[usize], width: f32,
         let is_selected = selected.contains(&card_index);
         let y = start_y;
         if phase == PlayerPhase::FaceDown {
-            draw_card_back(x, y, card_width, index == cursor);
+            card_renderer::draw_back(Rect::new(x, y, card_width, CARD_HEIGHT), index == cursor);
             draw_text(
                 format!("{}", index + 1),
                 x + card_width / 2.0 - 5.0,
@@ -646,7 +686,14 @@ fn draw_player_cards(game: &Game, cursor: usize, selected: &[usize], width: f32,
                 LIGHTGRAY,
             );
         } else if let Some(card) = cards.get(card_index) {
-            draw_card_sized(x, y, *card, card_width, is_selected, index == cursor);
+            card_renderer::draw_face(
+                Rect::new(x, y, card_width, CARD_HEIGHT),
+                *card,
+                CardStyle {
+                    selected: is_selected,
+                    focused: index == cursor,
+                },
+            );
             draw_text(
                 format!("{}", index + 1),
                 x + card_width / 2.0 - 5.0,
@@ -661,7 +708,14 @@ fn draw_player_cards(game: &Game, cursor: usize, selected: &[usize], width: f32,
     }
 }
 
-fn action_button_rects(width: f32, height: f32) -> (Rect, Rect, Rect) {
+#[derive(Clone, Copy)]
+struct ActionButtonRects {
+    play: Rect,
+    draw: Rect,
+    pickup: Rect,
+}
+
+fn action_button_rects(width: f32, height: f32) -> ActionButtonRects {
     let scale = ((width - 24.0) / 464.0).clamp(0.0, 1.0);
     let play_width = 180.0 * scale;
     let other_width = 130.0 * scale;
@@ -669,21 +723,21 @@ fn action_button_rects(width: f32, height: f32) -> (Rect, Rect, Rect) {
     let total_width = play_width + other_width * 2.0 + gap * 2.0;
     let left = ((width - total_width) / 2.0).max(12.0);
     let y = height - 101.0;
-    (
-        Rect::new(left, y, play_width, ACTION_BUTTON_HEIGHT),
-        Rect::new(
+    ActionButtonRects {
+        play: Rect::new(left, y, play_width, ACTION_BUTTON_HEIGHT),
+        draw: Rect::new(
             left + play_width + gap,
             y,
             other_width,
             ACTION_BUTTON_HEIGHT,
         ),
-        Rect::new(
+        pickup: Rect::new(
             left + play_width + gap + other_width + gap,
             y,
             other_width,
             ACTION_BUTTON_HEIGHT,
         ),
-    )
+    }
 }
 
 fn draw_action_buttons(
@@ -693,24 +747,24 @@ fn draw_action_buttons(
     height: f32,
     selected_count: usize,
 ) {
-    let (play, draw, pickup) = action_button_rects(width, height);
+    let buttons = action_button_rects(width, height);
     let play_text = if selected_count == 0 {
         "MARKERA KORT"
     } else {
         "SPELA MARKERADE"
     };
-    draw_button(play, play_text, selected_count > 0);
+    draw_button(buttons.play, play_text, selected_count > 0);
 
     if phase == PlayerPhase::Hand && game.draw_pile_size() > 0 {
-        draw_button(draw, "DRA + SPELA", true);
+        draw_button(buttons.draw, "DRA + SPELA", true);
     } else {
-        draw_button(draw, "SLUT PÅ KORT", false);
+        draw_button(buttons.draw, "SLUT PÅ KORT", false);
     }
 
     if !game.pile().is_empty() && phase != PlayerPhase::FaceDown {
-        draw_button(pickup, "PLOCKA UPP", true);
+        draw_button(buttons.pickup, "PLOCKA UPP", true);
     } else {
-        draw_button(pickup, "PLOCKA UPP", false);
+        draw_button(buttons.pickup, "PLOCKA UPP", false);
     }
 }
 
@@ -745,15 +799,15 @@ fn draw_button_contains(rect: Rect, x: f32, y: f32) -> bool {
 }
 
 fn play_button_contains(x: f32, y: f32, width: f32, height: f32) -> bool {
-    draw_button_contains(action_button_rects(width, height).0, x, y)
+    draw_button_contains(action_button_rects(width, height).play, x, y)
 }
 
 fn draw_button_contains_at(x: f32, y: f32, width: f32, height: f32) -> bool {
-    draw_button_contains(action_button_rects(width, height).1, x, y)
+    draw_button_contains(action_button_rects(width, height).draw, x, y)
 }
 
 fn pickup_button_contains(x: f32, y: f32, width: f32, height: f32) -> bool {
-    draw_button_contains(action_button_rects(width, height).2, x, y)
+    draw_button_contains(action_button_rects(width, height).pickup, x, y)
 }
 
 fn pile_target_contains(x: f32, y: f32, width: f32, height: f32) -> bool {
@@ -797,318 +851,6 @@ fn draw_controls(game: &Game, status: &str, width: f32, height: f32) {
     draw_text(controls, 20.0, panel_y + 34.0, 14.0, LIGHTGRAY);
 }
 
-fn draw_card(x: f32, y: f32, card: Card, highlighted: bool) {
-    draw_card_sized(x, y, card, CARD_WIDTH, highlighted, false);
-}
-
-fn draw_card_sized(x: f32, y: f32, card: Card, width: f32, selected: bool, focused: bool) {
-    draw_card_at_size(x, y, card, width, CARD_HEIGHT, selected, focused);
-}
-
-fn draw_card_at_size(
-    x: f32,
-    y: f32,
-    card: Card,
-    width: f32,
-    height: f32,
-    selected: bool,
-    focused: bool,
-) {
-    let scale = height / CARD_HEIGHT;
-    let suit = suit_color(card.suit);
-    let paper = if selected {
-        Color::new(1.0, 0.95, 0.72, 1.0)
-    } else {
-        Color::new(0.98, 0.96, 0.87, 1.0)
-    };
-    let edge = if selected {
-        GREEN
-    } else if focused {
-        GOLD
-    } else {
-        Color::new(0.12, 0.16, 0.2, 1.0)
-    };
-    draw_rectangle(x, y, width, height, edge);
-    draw_rectangle(
-        x + 3.0 * scale,
-        y + 3.0 * scale,
-        width - 6.0 * scale,
-        height - 6.0 * scale,
-        paper,
-    );
-    draw_rectangle(
-        x + 7.0 * scale,
-        y + 7.0 * scale,
-        width - 14.0 * scale,
-        4.0 * scale,
-        suit,
-    );
-    draw_rectangle(
-        x + 7.0 * scale,
-        y + height - 11.0 * scale,
-        width - 14.0 * scale,
-        4.0 * scale,
-        suit,
-    );
-    draw_pixel_text(
-        rank_label(card.rank),
-        x + 10.0 * scale,
-        y + 17.0 * scale,
-        3.0 * scale,
-        Color::new(0.08, 0.1, 0.13, 1.0),
-    );
-    draw_pixel_pattern(
-        x + width - 21.0 * scale,
-        y + 10.0 * scale,
-        2.0 * scale,
-        suit_pattern(card.suit),
-        suit,
-    );
-
-    if has_face_portrait(card.rank) {
-        draw_card_mascot(
-            x + width / 2.0 - 17.5 * scale,
-            y + 48.0 * scale,
-            card.rank,
-            scale,
-        );
-    } else if card.rank == Rank::Ace {
-        draw_card_mascot(
-            x + width / 2.0 - 17.5 * scale,
-            y + 55.0 * scale,
-            card.rank,
-            scale,
-        );
-    } else {
-        let label = rank_label(card.rank);
-        let columns = label.chars().count() * 3 + label.len().saturating_sub(1);
-        let rank_pixel = ((width - 20.0 * scale) / columns as f32).clamp(3.0 * scale, 10.0 * scale);
-        let rank_width = pixel_text_width(label, rank_pixel);
-        draw_pixel_text(
-            label,
-            x + (width - rank_width) / 2.0,
-            y + 53.0 * scale,
-            rank_pixel,
-            Color::new(0.08, 0.1, 0.13, 1.0),
-        );
-    }
-
-    draw_pixel_pattern(
-        x + width / 2.0 - 10.5 * scale,
-        y + 119.0 * scale,
-        1.5 * scale,
-        suit_pattern(card.suit),
-        suit,
-    );
-}
-
-fn pixel_glyph(character: char) -> [u8; 5] {
-    match character {
-        '0' => [0b111, 0b101, 0b101, 0b101, 0b111],
-        '1' => [0b010, 0b110, 0b010, 0b010, 0b111],
-        '2' => [0b111, 0b001, 0b111, 0b100, 0b111],
-        '3' => [0b111, 0b001, 0b111, 0b001, 0b111],
-        '4' => [0b101, 0b101, 0b111, 0b001, 0b001],
-        '5' => [0b111, 0b100, 0b111, 0b001, 0b111],
-        '6' => [0b111, 0b100, 0b111, 0b101, 0b111],
-        '7' => [0b111, 0b001, 0b010, 0b010, 0b010],
-        '8' => [0b111, 0b101, 0b111, 0b101, 0b111],
-        '9' => [0b111, 0b101, 0b111, 0b001, 0b111],
-        'A' => [0b010, 0b101, 0b111, 0b101, 0b101],
-        'J' => [0b111, 0b001, 0b001, 0b101, 0b111],
-        'K' => [0b101, 0b101, 0b110, 0b101, 0b101],
-        'Q' => [0b111, 0b101, 0b101, 0b111, 0b001],
-        _ => [0; 5],
-    }
-}
-
-fn pixel_text_width(text: &str, pixel: f32) -> f32 {
-    text.chars().count() as f32 * 3.0 * pixel
-        + text.chars().count().saturating_sub(1) as f32 * pixel
-}
-
-fn draw_pixel_text(text: &str, x: f32, y: f32, pixel: f32, color: Color) {
-    let mut cursor_x = x;
-    for character in text.chars() {
-        for (row, bits) in pixel_glyph(character).iter().enumerate() {
-            for column in 0..3 {
-                if bits & (1 << (2 - column)) != 0 {
-                    draw_rectangle(
-                        cursor_x + column as f32 * pixel,
-                        y + row as f32 * pixel,
-                        pixel,
-                        pixel,
-                        color,
-                    );
-                }
-            }
-        }
-        cursor_x += pixel * 4.0;
-    }
-}
-
-fn suit_pattern(suit: Suit) -> &'static [u8] {
-    match suit {
-        Suit::Clubs => &[
-            0b0011100, 0b0111110, 0b1111111, 0b0011100, 0b0011100, 0b0111110, 0b0111110,
-        ],
-        Suit::Diamonds => &[
-            0b0001000, 0b0011100, 0b0111110, 0b1111111, 0b0111110, 0b0011100, 0b0001000,
-        ],
-        Suit::Hearts => &[
-            0b0110110, 0b1111111, 0b1111111, 0b1111111, 0b0111110, 0b0011100, 0b0001000,
-        ],
-        Suit::Spades => &[
-            0b0001000, 0b0011100, 0b0111110, 0b1111111, 0b1111111, 0b0011100, 0b0111110,
-        ],
-    }
-}
-
-fn draw_pixel_pattern(x: f32, y: f32, pixel: f32, rows: &[u8], color: Color) {
-    for (row, bits) in rows.iter().enumerate() {
-        for column in 0..7 {
-            if bits & (1 << (6 - column)) != 0 {
-                draw_rectangle(
-                    x + column as f32 * pixel,
-                    y + row as f32 * pixel,
-                    pixel,
-                    pixel,
-                    color,
-                );
-            }
-        }
-    }
-}
-
-fn draw_card_mascot(x: f32, y: f32, rank: Rank, scale: f32) {
-    macro_rules! pattern {
-        ($dx:expr, $dy:expr, $pixel:expr, $rows:expr, $color:expr $(,)?) => {
-            draw_pixel_pattern(
-                x + $dx * scale,
-                y + $dy * scale,
-                $pixel * scale,
-                $rows,
-                $color,
-            )
-        };
-    }
-    macro_rules! rect {
-        ($dx:expr, $dy:expr, $width:expr, $height:expr, $color:expr) => {
-            draw_rectangle(
-                x + $dx * scale,
-                y + $dy * scale,
-                $width * scale,
-                $height * scale,
-                $color,
-            )
-        };
-    }
-    let ink = Color::new(0.1, 0.13, 0.17, 1.0);
-    let skin = Color::new(1.0, 0.69, 0.31, 1.0);
-    match rank {
-        Rank::Ace => {
-            pattern!(
-                3.0,
-                2.0,
-                4.0,
-                &[
-                    0b0001000, 0b0011100, 0b1111111, 0b0111110, 0b0111110, 0b0011100, 0b0011100,
-                ],
-                GOLD,
-            );
-            rect!(14.0, 16.0, 4.0, 4.0, WHITE);
-        }
-        Rank::Jack => {
-            let tunic = Color::new(0.15, 0.44, 0.72, 1.0);
-            pattern!(3.0, 0.0, 4.0, &[0b0010000, 0b0111000, 0b1111111], GOLD);
-            pattern!(3.0, 11.0, 4.0, &[0b0011100, 0b0111110], ink);
-            pattern!(
-                3.0,
-                19.0,
-                4.0,
-                &[0b0111110, 0b1111111, 0b1111111, 0b1111111, 0b0111110],
-                skin,
-            );
-            rect!(10.0, 27.0, 4.0, 4.0, ink);
-            rect!(22.0, 27.0, 4.0, 4.0, ink);
-            pattern!(11.0, 39.0, 4.0, &[0b0001000, 0b0011100], skin);
-            pattern!(
-                0.0,
-                47.0,
-                4.0,
-                &[0b0010000, 0b0111110, 0b1111111, 0b1111111, 0b1111111],
-                tunic,
-            );
-            rect!(15.0, 47.0, 4.0, 16.0, GOLD);
-        }
-        Rank::Queen => {
-            let hair = Color::new(0.55, 0.16, 0.39, 1.0);
-            pattern!(3.0, 0.0, 4.0, &[0b1010101, 0b1111111], GOLD);
-            pattern!(
-                3.0,
-                9.0,
-                4.0,
-                &[
-                    0b0111110, 0b1111111, 0b1111111, 0b1111111, 0b0111110, 0b0111110,
-                ],
-                hair,
-            );
-            pattern!(
-                7.0,
-                17.0,
-                4.0,
-                &[0b0011100, 0b0111110, 0b0111110, 0b0111110],
-                skin,
-            );
-            rect!(11.0, 29.0, 4.0, 4.0, ink);
-            rect!(21.0, 29.0, 4.0, 4.0, ink);
-            pattern!(11.0, 38.0, 4.0, &[0b0111110, 0b0011100], PINK);
-            pattern!(
-                0.0,
-                46.0,
-                4.0,
-                &[0b0010000, 0b0111110, 0b1111111, 0b1111111, 0b1111111],
-                hair,
-            );
-            pattern!(14.0, 47.0, 4.0, &[0b0011100, 0b0011100], GOLD);
-        }
-        Rank::King => {
-            let beard = Color::new(0.42, 0.22, 0.11, 1.0);
-            let robe = Color::new(0.43, 0.2, 0.58, 1.0);
-            pattern!(3.0, 0.0, 4.0, &[0b1010101, 0b1111111, 0b1111111], GOLD);
-            pattern!(
-                3.0,
-                13.0,
-                4.0,
-                &[0b0111110, 0b1111111, 0b1111111, 0b1111111, 0b0111110],
-                skin,
-            );
-            rect!(10.0, 25.0, 4.0, 4.0, ink);
-            rect!(22.0, 25.0, 4.0, 4.0, ink);
-            pattern!(
-                7.0,
-                32.0,
-                4.0,
-                &[0b0111110, 0b0111110, 0b0011100, 0b0011100],
-                beard,
-            );
-            pattern!(
-                0.0,
-                48.0,
-                4.0,
-                &[0b0010000, 0b0111110, 0b1111111, 0b1111111, 0b1111111],
-                robe,
-            );
-            pattern!(15.0, 49.0, 4.0, &[0b0011100, 0b0011100], GOLD);
-        }
-        _ => (),
-    }
-}
-
-fn has_face_portrait(rank: Rank) -> bool {
-    matches!(rank, Rank::Jack | Rank::Queen | Rank::King)
-}
-
 fn player_display_order(game: &Game, phase: PlayerPhase) -> Vec<usize> {
     let count = player_card_count(game, phase);
     if phase != PlayerPhase::Hand {
@@ -1150,61 +892,6 @@ fn suit_sort_key(suit: Suit) -> u8 {
         Suit::Hearts => 2,
         Suit::Spades => 3,
     }
-}
-
-fn draw_card_back(x: f32, y: f32, width: f32, highlighted: bool) {
-    draw_card_back_at_size(x, y, width, CARD_HEIGHT, highlighted);
-}
-
-fn draw_card_back_at_size(x: f32, y: f32, width: f32, height: f32, highlighted: bool) {
-    let scale = height / CARD_HEIGHT;
-    let navy = Color::new(0.07, 0.17, 0.39, 1.0);
-    let blue = Color::new(0.16, 0.38, 0.68, 1.0);
-    let gold = Color::new(0.95, 0.73, 0.27, 1.0);
-    draw_rectangle(x, y, width, height, if highlighted { GOLD } else { navy });
-    draw_rectangle(
-        x + 3.0 * scale,
-        y + 3.0 * scale,
-        width - 6.0 * scale,
-        height - 6.0 * scale,
-        blue,
-    );
-    draw_rectangle_lines(
-        x + 7.0 * scale,
-        y + 7.0 * scale,
-        width - 14.0 * scale,
-        height - 14.0 * scale,
-        2.0 * scale,
-        gold,
-    );
-    for row in 0..5 {
-        for column in 0..3 {
-            let px = x + (14.0 + column as f32 * 25.0) * scale;
-            let py = y + (19.0 + row as f32 * 25.0) * scale;
-            draw_pixel_pattern(
-                px,
-                py,
-                2.0 * scale,
-                suit_pattern(if (row + column) % 2 == 0 {
-                    Suit::Diamonds
-                } else {
-                    Suit::Hearts
-                }),
-                if (row + column) % 2 == 0 {
-                    gold
-                } else {
-                    Color::new(0.86, 0.89, 0.96, 1.0)
-                },
-            );
-        }
-    }
-    draw_pixel_pattern(
-        x + width / 2.0 - 14.0 * scale,
-        y + height / 2.0 - 14.0 * scale,
-        4.0 * scale,
-        suit_pattern(Suit::Spades),
-        navy,
-    );
 }
 
 fn card_at_position(
@@ -1261,20 +948,26 @@ fn toggle_selection(selected: &mut Vec<usize>, index: usize) {
 fn format_outcome(actor: &str, outcome: &TurnOutcome) -> String {
     let mut message = if let Some(card) = outcome.drawn {
         if outcome.played.is_some() {
-            format!("{actor}drog och spelade {}.", format_card(card))
+            format!(
+                "{actor}drog och spelade {}.",
+                card_renderer::format_card(card)
+            )
         } else {
-            format!("{actor}drog {} och tog upp spelhögen.", format_card(card))
+            format!(
+                "{actor}drog {} och tog upp spelhögen.",
+                card_renderer::format_card(card)
+            )
         }
     } else if !outcome.played_cards.is_empty() {
         let cards = outcome
             .played_cards
             .iter()
-            .map(|card| format_card(*card))
+            .map(|card| card_renderer::format_card(*card))
             .collect::<Vec<_>>()
             .join(" och ");
         format!("{actor}spelade {cards}.")
     } else if let Some(card) = outcome.played {
-        format!("{actor}vände {}.", format_card(card))
+        format!("{actor}vände {}.", card_renderer::format_card(card))
     } else {
         format!("{actor}plockade upp spelhögen.")
     };
@@ -1287,44 +980,6 @@ fn format_outcome(actor: &str, outcome: &TurnOutcome) -> String {
         message.push_str(&format!(" {} kort plockades upp.", outcome.picked_up));
     }
     message
-}
-
-fn format_card(card: Card) -> String {
-    format!("{} {}", rank_label(card.rank), suit_letter(card.suit))
-}
-
-fn rank_label(rank: Rank) -> &'static str {
-    match rank {
-        Rank::Two => "2",
-        Rank::Three => "3",
-        Rank::Four => "4",
-        Rank::Five => "5",
-        Rank::Six => "6",
-        Rank::Seven => "7",
-        Rank::Eight => "8",
-        Rank::Nine => "9",
-        Rank::Ten => "10",
-        Rank::Jack => "J",
-        Rank::Queen => "Q",
-        Rank::King => "K",
-        Rank::Ace => "A",
-    }
-}
-
-fn suit_letter(suit: Suit) -> &'static str {
-    match suit {
-        Suit::Clubs => "C",
-        Suit::Diamonds => "D",
-        Suit::Hearts => "H",
-        Suit::Spades => "S",
-    }
-}
-
-fn suit_color(suit: Suit) -> Color {
-    match suit {
-        Suit::Diamonds | Suit::Hearts => RED,
-        Suit::Clubs | Suit::Spades => BLACK,
-    }
 }
 
 #[cfg(test)]
@@ -1375,29 +1030,29 @@ mod tests {
     fn action_button_hit_regions_match_their_layout() {
         for width in [360.0, 800.0, 1100.0] {
             let height = 760.0;
-            let (play, draw, pickup) = action_button_rects(width, height);
-            let center_y = play.y + play.h / 2.0;
+            let buttons = action_button_rects(width, height);
+            let center_y = buttons.play.y + buttons.play.h / 2.0;
 
             assert!(play_button_contains(
-                play.x + play.w / 2.0,
+                buttons.play.x + buttons.play.w / 2.0,
                 center_y,
                 width,
                 height
             ));
             assert!(draw_button_contains_at(
-                draw.x + draw.w / 2.0,
+                buttons.draw.x + buttons.draw.w / 2.0,
                 center_y,
                 width,
                 height
             ));
             assert!(pickup_button_contains(
-                pickup.x + pickup.w / 2.0,
+                buttons.pickup.x + buttons.pickup.w / 2.0,
                 center_y,
                 width,
                 height
             ));
             assert!(!play_button_contains(
-                draw.x + draw.w / 2.0,
+                buttons.draw.x + buttons.draw.w / 2.0,
                 center_y,
                 width,
                 height
@@ -1506,36 +1161,5 @@ mod tests {
                 Rank::Ten
             ]
         );
-    }
-
-    #[test]
-    fn pixel_font_has_distinct_rank_glyphs() {
-        for glyph in [
-            '2', '3', '4', '5', '6', '7', '8', '9', '1', '0', 'A', 'J', 'Q', 'K',
-        ] {
-            assert_ne!(pixel_glyph(glyph), [0; 5]);
-        }
-        assert!(pixel_text_width("10", 5.0) > pixel_text_width("A", 5.0));
-    }
-
-    #[test]
-    fn only_jack_queen_and_king_have_face_portraits() {
-        for rank in [Rank::Jack, Rank::Queen, Rank::King] {
-            assert!(has_face_portrait(rank));
-        }
-        for rank in [
-            Rank::Two,
-            Rank::Three,
-            Rank::Four,
-            Rank::Five,
-            Rank::Six,
-            Rank::Seven,
-            Rank::Eight,
-            Rank::Nine,
-            Rank::Ten,
-            Rank::Ace,
-        ] {
-            assert!(!has_face_portrait(rank));
-        }
     }
 }
