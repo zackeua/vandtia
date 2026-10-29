@@ -35,8 +35,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut game_session = None;
     let mut cursor = 0usize;
     let mut selected = Vec::new();
-    let mut status =
-        String::from("Click cards to select them, then click PLAY SELECTED or the pile.");
+    let mut status = String::from("Markera kort och klicka på SPELA MARKERADE eller spelhögen.");
     let mut ai_next_at = 0.0;
 
     loop {
@@ -81,7 +80,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         if game.winner().is_none() && current_player != 0 && get_time() >= ai_next_at {
             match play_computer_turn(game) {
                 Ok(outcome) => {
-                    status = format_outcome(&format!("Player {} ", current_player + 1), &outcome);
+                    status = format_outcome(&format!("Bot {} ", current_player + 1), &outcome);
                     ai_next_at = get_time() + 0.7;
                     cursor = 0;
                     selected.clear();
@@ -101,9 +100,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 game_session = None;
                 cursor = 0;
                 selected.clear();
-                status = String::from(
-                    "Click cards to select them, then click PLAY SELECTED or the pile.",
-                );
+                status =
+                    String::from("Markera kort och klicka på SPELA MARKERADE eller spelhögen.");
                 ai_next_at = 0.0;
             }
             if is_key_pressed(KeyCode::Q) || is_key_pressed(KeyCode::Escape) {
@@ -138,12 +136,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             if is_key_pressed(KeyCode::D) && phase == PlayerPhase::Hand {
                 match game.draw_and_play() {
                     Ok(outcome) => {
-                        status = format_outcome("You ", &outcome);
+                        status = format_outcome("Du ", &outcome);
                         cursor = 0;
                         selected.clear();
                         ai_next_at = get_time() + 0.7;
                     }
-                    Err(error) => status = format!("Could not draw: {error}"),
+                    Err(error) => status = format!("Kunde inte dra kort: {error}"),
                 }
             } else if is_key_pressed(KeyCode::P)
                 && phase != PlayerPhase::FaceDown
@@ -151,27 +149,27 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             {
                 match game.pick_up_pile() {
                     Ok(outcome) => {
-                        status = format_outcome("You ", &outcome);
+                        status = format_outcome("Du ", &outcome);
                         cursor = 0;
                         selected.clear();
                         ai_next_at = get_time() + 0.7;
                     }
-                    Err(error) => status = format!("Could not pick up pile: {error}"),
+                    Err(error) => status = format!("Kunde inte ta upp spelhögen: {error}"),
                 }
             } else if is_key_pressed(KeyCode::Enter) && count > 0 {
                 let indices = selected_indices(&selected, cursor, phase);
                 if phase == PlayerPhase::FaceDown {
                     match game.play_face_down_at(cursor) {
                         Ok(outcome) => {
-                            status = format_outcome("You ", &outcome);
+                            status = format_outcome("Du ", &outcome);
                             cursor = 0;
                             selected.clear();
                             ai_next_at = get_time() + 0.7;
                         }
-                        Err(error) => status = format!("Could not turn card: {error}"),
+                        Err(error) => status = format!("Kunde inte vända kortet: {error}"),
                     }
                 } else if indices.is_empty() {
-                    status = "Select one or more cards first.".to_owned();
+                    status = "Markera minst ett kort först.".to_owned();
                 } else {
                     play_selected(
                         game,
@@ -198,11 +196,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     if phase == PlayerPhase::FaceDown {
                         match game.play_face_down_at(index) {
                             Ok(outcome) => {
-                                status = format_outcome("You ", &outcome);
+                                status = format_outcome("Du ", &outcome);
                                 cursor = 0;
                                 ai_next_at = get_time() + 0.7;
                             }
-                            Err(error) => status = format!("Could not turn card: {error}"),
+                            Err(error) => status = format!("Kunde inte vända kortet: {error}"),
                         }
                     } else {
                         toggle_selection(&mut selected, index);
@@ -212,7 +210,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     && play_button_contains(mouse_x, mouse_y, screen_width(), screen_height())
                 {
                     if selected.is_empty() {
-                        status = "Select one or more cards first.".to_owned();
+                        status = "Markera minst ett kort först.".to_owned();
                     } else {
                         let indices = selected.clone();
                         play_selected(
@@ -230,12 +228,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 {
                     match game.draw_and_play() {
                         Ok(outcome) => {
-                            status = format_outcome("You ", &outcome);
+                            status = format_outcome("Du ", &outcome);
                             cursor = 0;
                             selected.clear();
                             ai_next_at = get_time() + 0.7;
                         }
-                        Err(error) => status = format!("Could not draw: {error}"),
+                        Err(error) => status = format!("Kunde inte dra kort: {error}"),
                     }
                 } else if phase != PlayerPhase::FaceDown
                     && !game.pile().is_empty()
@@ -243,18 +241,18 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 {
                     match game.pick_up_pile() {
                         Ok(outcome) => {
-                            status = format_outcome("You ", &outcome);
+                            status = format_outcome("Du ", &outcome);
                             cursor = 0;
                             selected.clear();
                             ai_next_at = get_time() + 0.7;
                         }
-                        Err(error) => status = format!("Could not pick up pile: {error}"),
+                        Err(error) => status = format!("Kunde inte ta upp spelhögen: {error}"),
                     }
                 } else if phase != PlayerPhase::FaceDown
                     && pile_target_contains(mouse_x, mouse_y, screen_width(), screen_height())
                 {
                     if selected.is_empty() {
-                        status = "Select one or more cards first.".to_owned();
+                        status = "Markera minst ett kort först.".to_owned();
                     } else {
                         let indices = selected.clone();
                         play_selected(
@@ -295,21 +293,21 @@ fn play_selected(
     };
     match result {
         Ok(outcome) => {
-            *status = format_outcome("You ", &outcome);
+            *status = format_outcome("Du ", &outcome);
             *cursor = 0;
             selection.clear();
             *ai_next_at = get_time() + 0.7;
         }
-        Err(error) => *status = format!("Could not play selection: {error}"),
+        Err(error) => *status = format!("Kunde inte spela de markerade korten: {error}"),
     }
 }
 
 fn selection_status(selected: &[usize]) -> String {
     if selected.is_empty() {
-        "Selection cleared.".to_owned()
+        "Markeringen har tagits bort.".to_owned()
     } else {
         format!(
-            "{} card(s) selected. Click PLAY SELECTED or the pile.",
+            "{} kort markerade. Klicka på SPELA MARKERADE eller spelhögen.",
             selected.len()
         )
     }
@@ -322,21 +320,21 @@ fn parse_args() -> Result<(usize, Option<u64>), Box<dyn std::error::Error>> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--players" | "-p" => {
-                players = args.next().ok_or("--players requires a value")?.parse()?;
+                players = args.next().ok_or("--players kräver ett värde")?.parse()?;
             }
             "--seed" | "-s" => {
-                seed = Some(args.next().ok_or("--seed requires a value")?.parse()?);
+                seed = Some(args.next().ok_or("--seed kräver ett värde")?.parse()?);
             }
             "--help" | "-h" => {
-                println!("Usage: vandtia-graphics [--players 2-5] [--seed N]");
-                println!("Without --seed, a new seed is generated when the game starts.");
+                println!("Användning: vandtia-graphics [--players 2-5] [--seed N]");
+                println!("Utan --seed skapas ett nytt startvärde när spelet startar.");
                 process::exit(0);
             }
-            unknown => return Err(format!("unknown argument: {unknown}").into()),
+            unknown => return Err(format!("okänt argument: {unknown}").into()),
         }
     }
     if !(2..=5).contains(&players) {
-        return Err("--players must be between 2 and 5".into());
+        return Err("--players måste vara mellan 2 och 5".into());
     }
     Ok((players, seed))
 }
@@ -358,14 +356,8 @@ fn random_seed() -> Result<u64, std::convert::Infallible> {
 
 fn draw_setup_screen(players: usize, fixed_seed: bool, width: f32, height: f32) {
     clear_background(TABLE_COLOR);
-    draw_text("VANDTIA", width / 2.0 - 92.0, height * 0.22, 48.0, GOLD);
-    draw_text(
-        "Choose the number of players",
-        width / 2.0 - 167.0,
-        height * 0.36,
-        24.0,
-        WHITE,
-    );
+    draw_text("VÄNDTIA", width / 2.0 - 92.0, height * 0.22, 48.0, GOLD);
+    draw_centered_text("Välj antal spelare", width / 2.0, height * 0.36, 24, WHITE);
 
     let center_y = height * 0.51;
     let (minus, plus) = setup_player_buttons(width, height);
@@ -378,32 +370,32 @@ fn draw_setup_screen(players: usize, fixed_seed: bool, width: f32, height: f32) 
         42.0,
         WHITE,
     );
-    draw_text(
-        "Use LEFT/RIGHT or the buttons (2-5 players)",
-        width / 2.0 - 216.0,
+    draw_centered_text(
+        "Använd piltangenterna eller knapparna (2-5 spelare)",
+        width / 2.0,
         center_y + 61.0,
-        18.0,
+        18,
         LIGHTGRAY,
     );
-    draw_text(
+    draw_centered_text(
         if fixed_seed {
-            "Using the seed supplied on the command line"
+            "Använder startvärdet från kommandoraden"
         } else {
-            "A random seed will be generated for this game"
+            "Ett slumpat startvärde skapas för spelet"
         },
-        width / 2.0 - 207.0,
+        width / 2.0,
         center_y + 96.0,
-        17.0,
+        17,
         LIGHTGRAY,
     );
 
     let start = setup_start_button(width, height);
-    draw_setup_button(start, "START GAME");
-    draw_text(
-        "ENTER: START    Q: QUIT",
-        width / 2.0 - 105.0,
+    draw_setup_button(start, "STARTA SPELET");
+    draw_centered_text(
+        "RETUR: STARTA    Q: AVSLUTA",
+        width / 2.0,
         start.y + start.h + 33.0,
-        17.0,
+        17,
         LIGHTGRAY,
     );
 }
@@ -426,7 +418,7 @@ fn start_button_contains(x: f32, y: f32) -> bool {
 }
 
 fn menu_button_rect(width: f32, height: f32) -> Rect {
-    Rect::new(width / 2.0 - 120.0, height * 0.62, 240.0, 54.0)
+    Rect::new(width / 2.0 - 150.0, height * 0.62, 300.0, 54.0)
 }
 
 fn menu_button_contains(x: f32, y: f32) -> bool {
@@ -435,40 +427,42 @@ fn menu_button_contains(x: f32, y: f32) -> bool {
 
 fn draw_game_over_screen(winner: usize, width: f32, height: f32) {
     clear_background(TABLE_COLOR);
-    draw_text("GAME OVER", width / 2.0 - 139.0, height * 0.28, 42.0, GOLD);
-    let message = if winner == 0 {
-        "You won!"
+    let title = if winner == 0 {
+        "DU VANN!"
     } else {
-        "Player won!"
+        "SPELET ÄR SLUT"
     };
-    let message_width = measure_text(message, None, 30, 1.0).width;
-    draw_text(
-        message,
-        width / 2.0 - message_width / 2.0,
-        height * 0.43,
-        30.0,
-        WHITE,
-    );
+    draw_centered_text(title, width / 2.0, height * 0.28, 42, GOLD);
+    let message = if winner == 0 {
+        "Grattis!"
+    } else {
+        "En bot vann!"
+    };
+    draw_centered_text(message, width / 2.0, height * 0.43, 30, WHITE);
     if winner > 0 {
-        let player = format!("Player {} is the winner", winner + 1);
-        let player_width = measure_text(&player, None, 20, 1.0).width;
-        draw_text(
-            &player,
-            width / 2.0 - player_width / 2.0,
-            height * 0.50,
-            20.0,
-            LIGHTGRAY,
-        );
+        let bot = format!("Bot {} vann", winner + 1);
+        draw_centered_text(&bot, width / 2.0, height * 0.50, 20, LIGHTGRAY);
     }
 
     let menu_button = menu_button_rect(width, height);
-    draw_setup_button(menu_button, "BACK TO MENU");
-    draw_text(
-        "ENTER / M: MENU    Q: QUIT",
-        width / 2.0 - 125.0,
+    draw_setup_button(menu_button, "TILLBAKA TILL MENYN");
+    draw_centered_text(
+        "RETUR / M: MENY    Q: AVSLUTA",
+        width / 2.0,
         menu_button.y + menu_button.h + 34.0,
-        17.0,
+        17,
         LIGHTGRAY,
+    );
+}
+
+fn draw_centered_text(text: &str, center_x: f32, y: f32, font_size: u16, color: Color) {
+    let text_width = measure_text(text, None, font_size, 1.0).width;
+    draw_text(
+        text,
+        center_x - text_width / 2.0,
+        y,
+        f32::from(font_size),
+        color,
     );
 }
 
@@ -499,7 +493,7 @@ fn draw_screen(game: &Game, cursor: usize, selected: &[usize], status: &str) {
     draw_text("VÄNDTIA", 28.0, 42.0, 34.0, GOLD);
     draw_text(
         format!(
-            "DRAW PILE: {} cards     DISCARD PILE: {} cards",
+            "DRAGHÖG: {} kort     SPELHÖG: {} kort",
             game.draw_pile_size(),
             game.pile().len()
         ),
@@ -509,16 +503,16 @@ fn draw_screen(game: &Game, cursor: usize, selected: &[usize], status: &str) {
         WHITE,
     );
     draw_text(
-        "SUITS: C=CLUBS  D=DIAMONDS  H=HEARTS  S=SPADES",
+        "FÄRGER: C=KLÖVER  D=RUTER  H=HJÄRTER  S=SPADER",
         28.0,
         61.0,
         15.0,
         LIGHTGRAY,
     );
     let current = if game.current_player() == 0 {
-        "Your turn".to_owned()
+        "Din tur".to_owned()
     } else {
-        format!("Player {} turn", game.current_player() + 1)
+        format!("Bot {}:s tur", game.current_player() + 1)
     };
     draw_text(&current, width - 210.0, 38.0, 22.0, SKYBLUE);
 
@@ -538,11 +532,11 @@ fn draw_player_tables(game: &Game, width: f32) {
         let label = if player == 0 {
             "YOU".to_owned()
         } else {
-            format!("PLAYER {}", player + 1)
+            format!("BOT {}", player + 1)
         };
         let hand_count = game.hand_count(player).unwrap_or(0);
         draw_text(
-            format!("{label}: {hand_count} IN HAND"),
+            format!("{label}: {hand_count} PÅ HANDEN"),
             x + 12.0,
             y + 27.0,
             16.0,
@@ -585,7 +579,7 @@ fn draw_pile(game: &Game, width: f32, height: f32) {
     let pile = pile_card_rect(width, height);
     let center_x = pile.x + pile.w / 2.0;
     draw_text(
-        "DISCARD PILE - CLICK TO PLAY",
+        "SPELHÖG - KLICKA FÖR ATT SPELA",
         center_x - 145.0,
         pile.y - 14.0,
         18.0,
@@ -594,7 +588,7 @@ fn draw_pile(game: &Game, width: f32, height: f32) {
     if let Some(card) = game.pile().last() {
         draw_card(pile.x, pile.y, *card, false);
         draw_text(
-            format!("{} cards in pile", game.pile().len()),
+            format!("{} kort i spelhögen", game.pile().len()),
             center_x - 75.0,
             pile.y + CARD_HEIGHT + 22.0,
             18.0,
@@ -609,7 +603,7 @@ fn draw_pile(game: &Game, width: f32, height: f32) {
             Color::new(0.03, 0.2, 0.14, 1.0),
         );
         draw_rectangle_lines(pile.x, pile.y, pile.w, pile.h, 2.0, LIGHTGRAY);
-        draw_text("EMPTY", center_x - 27.0, pile.y + 78.0, 18.0, LIGHTGRAY);
+        draw_centered_text("TOM", center_x, pile.y + 78.0, 18, LIGHTGRAY);
     }
 }
 
@@ -629,9 +623,9 @@ fn draw_player_cards(game: &Game, cursor: usize, selected: &[usize], width: f32,
     let cards = player_cards(game, phase);
     let count = player_card_count(game, phase);
     let title = match phase {
-        PlayerPhase::Hand => "YOUR HAND",
-        PlayerPhase::FaceUp => "YOUR FACE-UP CARDS",
-        PlayerPhase::FaceDown => "YOUR FACE-DOWN CARDS",
+        PlayerPhase::Hand => "DIN HAND",
+        PlayerPhase::FaceUp => "DINA ÖPPNA KORT",
+        PlayerPhase::FaceDown => "DINA BLINDA KORT",
     };
     let start_y = height - CARD_HEIGHT - 154.0;
     draw_text(title, 28.0, start_y - 16.0, 20.0, GOLD);
@@ -701,22 +695,22 @@ fn draw_action_buttons(
 ) {
     let (play, draw, pickup) = action_button_rects(width, height);
     let play_text = if selected_count == 0 {
-        "SELECT CARDS"
+        "MARKERA KORT"
     } else {
-        "PLAY SELECTED"
+        "SPELA MARKERADE"
     };
     draw_button(play, play_text, selected_count > 0);
 
     if phase == PlayerPhase::Hand && game.draw_pile_size() > 0 {
-        draw_button(draw, "DRAW + PLAY", true);
+        draw_button(draw, "DRA + SPELA", true);
     } else {
-        draw_button(draw, "DRAW EMPTY", false);
+        draw_button(draw, "SLUT PÅ KORT", false);
     }
 
     if !game.pile().is_empty() && phase != PlayerPhase::FaceDown {
-        draw_button(pickup, "PICK UP", true);
+        draw_button(pickup, "PLOCKA UPP", true);
     } else {
-        draw_button(pickup, "PICK UP", false);
+        draw_button(pickup, "PLOCKA UPP", false);
     }
 }
 
@@ -793,10 +787,12 @@ fn draw_controls(game: &Game, status: &str, width: f32, height: f32) {
     let phase = game.player_phase(0).unwrap_or(PlayerPhase::FaceDown);
     let controls = match phase {
         PlayerPhase::Hand => {
-            "LEFT/RIGHT: MOVE  SPACE: TOGGLE  ENTER: PLAY  D: DRAW  P: PICK UP  Q: QUIT"
+            "PILTANGENTER: FLYTTA  MELLANSLAG: MARKERA  RETUR: SPELA  D: DRA  P: PLOCKA UPP  Q: AVSLUTA"
         }
-        PlayerPhase::FaceUp => "LEFT/RIGHT: MOVE  SPACE: TOGGLE  ENTER: PLAY  P: PICK UP  Q: QUIT",
-        PlayerPhase::FaceDown => "LEFT/RIGHT: MOVE  ENTER: REVEAL  Q: QUIT",
+        PlayerPhase::FaceUp => {
+            "PILTANGENTER: FLYTTA  MELLANSLAG: MARKERA  RETUR: SPELA  P: PLOCKA UPP  Q: AVSLUTA"
+        }
+        PlayerPhase::FaceDown => "PILTANGENTER: FLYTTA  RETUR: VÄND  Q: AVSLUTA",
     };
     draw_text(controls, 20.0, panel_y + 34.0, 14.0, LIGHTGRAY);
 }
@@ -1265,9 +1261,9 @@ fn toggle_selection(selected: &mut Vec<usize>, index: usize) {
 fn format_outcome(actor: &str, outcome: &TurnOutcome) -> String {
     let mut message = if let Some(card) = outcome.drawn {
         if outcome.played.is_some() {
-            format!("{actor}drew and played {}.", format_card(card))
+            format!("{actor}drog och spelade {}.", format_card(card))
         } else {
-            format!("{actor}drew {}, picked up the pile.", format_card(card))
+            format!("{actor}drog {} och tog upp spelhögen.", format_card(card))
         }
     } else if !outcome.played_cards.is_empty() {
         let cards = outcome
@@ -1275,20 +1271,20 @@ fn format_outcome(actor: &str, outcome: &TurnOutcome) -> String {
             .iter()
             .map(|card| format_card(*card))
             .collect::<Vec<_>>()
-            .join(" and ");
-        format!("{actor}played {cards}.")
+            .join(" och ");
+        format!("{actor}spelade {cards}.")
     } else if let Some(card) = outcome.played {
-        format!("{actor}turned over {}.", format_card(card))
+        format!("{actor}vände {}.", format_card(card))
     } else {
-        format!("{actor}picked up the pile.")
+        format!("{actor}plockade upp spelhögen.")
     };
     if outcome.burned {
-        message.push_str(" Pile cleared - extra turn!");
+        message.push_str(" Spelhögen tömdes - en tur till!");
     } else if outcome.extra_turn {
-        message.push_str(" Extra turn!");
+        message.push_str(" En tur till!");
     }
     if outcome.picked_up > 0 && outcome.drawn.is_none() {
-        message.push_str(&format!(" Picked up {} cards.", outcome.picked_up));
+        message.push_str(&format!(" {} kort plockades upp.", outcome.picked_up));
     }
     message
 }
