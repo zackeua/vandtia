@@ -17,7 +17,7 @@ pub struct CardStyle {
 
 /// Draws a face-up card inside `rect`.
 pub fn draw_face(rect: Rect, card: Card, style: CardStyle) {
-    let scale = rect.h / CARD_HEIGHT;
+    let scale = (rect.h / CARD_HEIGHT).min(rect.w / CARD_WIDTH);
     let suit = suit_color(card.suit);
     let paper = if style.selected {
         Color::new(1.0, 0.95, 0.72, 1.0)
@@ -109,7 +109,7 @@ pub fn draw_face(rect: Rect, card: Card, style: CardStyle) {
 
 /// Draws a face-down card inside `rect`.
 pub fn draw_back(rect: Rect, highlighted: bool) {
-    let scale = rect.h / CARD_HEIGHT;
+    let scale = (rect.h / CARD_HEIGHT).min(rect.w / CARD_WIDTH);
     let navy = Color::new(0.07, 0.17, 0.39, 1.0);
     let blue = Color::new(0.16, 0.38, 0.68, 1.0);
     let gold = Color::new(0.95, 0.73, 0.27, 1.0);

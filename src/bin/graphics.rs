@@ -8,6 +8,7 @@ use vandtia::{Card, Game, PlayerPhase, Rank, Suit, TurnOutcome, simulator::play_
 
 const CARD_GAP: f32 = 14.0;
 const ACTION_BUTTON_HEIGHT: f32 = 38.0;
+const COMPACT_ACTION_BUTTON_HEIGHT: f32 = 58.0;
 const NEXT_TURN_DELAY: f64 = 0.7;
 const INITIAL_STATUS: &str = "Markera kort och klicka på SPELA MARKERADE eller spelhögen.";
 const TABLE_COLOR: Color = Color::new(0.05, 0.28, 0.19, 1.0);
@@ -395,11 +396,25 @@ fn random_seed() -> Result<u64, std::convert::Infallible> {
 }
 
 fn draw_setup_screen(players: usize, fixed_seed: bool, width: f32, height: f32) {
+    let compact = compact_layout(width, height);
+    let short = height < 520.0;
     clear_background(TABLE_COLOR);
-    draw_text("VÄNDTIA", width / 2.0 - 92.0, height * 0.22, 48.0, GOLD);
-    draw_centered_text("Välj antal spelare", width / 2.0, height * 0.36, 24, WHITE);
+    draw_centered_text(
+        "VÄNDTIA",
+        width / 2.0,
+        height * if short { 0.16 } else { 0.22 },
+        if compact { 36 } else { 48 },
+        GOLD,
+    );
+    draw_centered_text(
+        "Välj antal spelare",
+        width / 2.0,
+        height * if short { 0.28 } else { 0.36 },
+        if compact { 20 } else { 24 },
+        WHITE,
+    );
 
-    let center_y = height * 0.51;
+    let center_y = setup_player_selector_y(height);
     let (minus, plus) = setup_player_buttons(width, height);
     draw_setup_button(minus, "-");
     draw_setup_button(plus, "+");
@@ -410,46 +425,87 @@ fn draw_setup_screen(players: usize, fixed_seed: bool, width: f32, height: f32) 
         42.0,
         WHITE,
     );
-    draw_centered_text(
-        "Använd piltangenterna eller knapparna (2-5 spelare)",
-        width / 2.0,
-        center_y + 61.0,
-        18,
-        LIGHTGRAY,
-    );
+    if !compact {
+        draw_centered_text(
+            "Använd piltangenterna eller knapparna (2-5 spelare)",
+            width / 2.0,
+            center_y + 61.0,
+            18,
+            LIGHTGRAY,
+        );
+    }
     draw_centered_text(
         if fixed_seed {
-            "Använder startvärdet från kommandoraden"
+            if compact {
+                "Fast startvärde"
+            } else {
+                "Använder startvärdet från kommandoraden"
+            }
+        } else if compact {
+            "Slumpat startvärde"
         } else {
             "Ett slumpat startvärde skapas för spelet"
         },
         width / 2.0,
-        center_y + 96.0,
-        17,
+        center_y + if short { 50.0 } else { 96.0 },
+        if compact { 15 } else { 17 },
         LIGHTGRAY,
     );
 
     let start = setup_start_button(width, height);
     draw_setup_button(start, "STARTA SPELET");
-    draw_centered_text(
-        "RETUR: STARTA    Q: AVSLUTA",
-        width / 2.0,
-        start.y + start.h + 33.0,
-        17,
-        LIGHTGRAY,
-    );
+    if !compact {
+        draw_centered_text(
+            "RETUR: STARTA    Q: AVSLUTA",
+            width / 2.0,
+            start.y + start.h + 33.0,
+            17,
+            LIGHTGRAY,
+        );
+    }
 }
 
 fn setup_player_buttons(width: f32, height: f32) -> (Rect, Rect) {
-    let center_y = height * 0.51;
+    let center_y = setup_player_selector_y(height);
+    let size = if compact_layout(width, height) {
+        66.0
+    } else {
+        58.0
+    };
+    let distance = 117.0_f32.min((width - size - 32.0).max(0.0) / 2.0);
     (
-        Rect::new(width / 2.0 - 146.0, center_y - 29.0, 58.0, 58.0),
-        Rect::new(width / 2.0 + 88.0, center_y - 29.0, 58.0, 58.0),
+        Rect::new(
+            width / 2.0 - distance - size / 2.0,
+            center_y - size / 2.0,
+            size,
+            size,
+        ),
+        Rect::new(
+            width / 2.0 + distance - size / 2.0,
+            center_y - size / 2.0,
+            size,
+            size,
+        ),
     )
 }
 
+fn setup_player_selector_y(height: f32) -> f32 {
+    height * if height < 520.0 { 0.44 } else { 0.51 }
+}
+
 fn setup_start_button(width: f32, height: f32) -> Rect {
-    Rect::new(width / 2.0 - 105.0, height * 0.72, 210.0, 52.0)
+    let button_width = (width - 40.0).clamp(210.0, 300.0);
+    let button_height = if compact_layout(width, height) {
+        64.0
+    } else {
+        52.0
+    };
+    Rect::new(
+        (width - button_width) / 2.0,
+        height * 0.72,
+        button_width,
+        button_height,
+    )
 }
 
 fn start_button_contains(x: f32, y: f32) -> bool {
@@ -458,7 +514,18 @@ fn start_button_contains(x: f32, y: f32) -> bool {
 }
 
 fn menu_button_rect(width: f32, height: f32) -> Rect {
-    Rect::new(width / 2.0 - 150.0, height * 0.62, 300.0, 54.0)
+    let button_width = (width - 32.0).clamp(170.0, 320.0);
+    let button_height = if compact_layout(width, height) {
+        64.0
+    } else {
+        54.0
+    };
+    Rect::new(
+        (width - button_width) / 2.0,
+        height * 0.62,
+        button_width,
+        button_height,
+    )
 }
 
 fn menu_button_contains(x: f32, y: f32) -> bool {
@@ -466,19 +533,32 @@ fn menu_button_contains(x: f32, y: f32) -> bool {
 }
 
 fn draw_game_over_screen(winner: usize, width: f32, height: f32) {
+    let compact = compact_layout(width, height);
     clear_background(TABLE_COLOR);
     let title = if winner == 0 {
         "DU VANN!"
     } else {
         "SPELET ÄR SLUT"
     };
-    draw_centered_text(title, width / 2.0, height * 0.28, 42, GOLD);
+    draw_centered_text(
+        title,
+        width / 2.0,
+        height * 0.28,
+        if compact { 34 } else { 42 },
+        GOLD,
+    );
     let message = if winner == 0 {
         "Grattis!"
     } else {
         "En bot vann!"
     };
-    draw_centered_text(message, width / 2.0, height * 0.43, 30, WHITE);
+    draw_centered_text(
+        message,
+        width / 2.0,
+        height * 0.43,
+        if compact { 24 } else { 30 },
+        WHITE,
+    );
     if winner > 0 {
         let bot = format!("Bot {} vann", winner + 1);
         draw_centered_text(&bot, width / 2.0, height * 0.50, 20, LIGHTGRAY);
@@ -486,13 +566,15 @@ fn draw_game_over_screen(winner: usize, width: f32, height: f32) {
 
     let menu_button = menu_button_rect(width, height);
     draw_setup_button(menu_button, "TILLBAKA TILL MENYN");
-    draw_centered_text(
-        "RETUR / M: MENY    Q: AVSLUTA",
-        width / 2.0,
-        menu_button.y + menu_button.h + 34.0,
-        17,
-        LIGHTGRAY,
-    );
+    if !compact {
+        draw_centered_text(
+            "RETUR / M: MENY    Q: AVSLUTA",
+            width / 2.0,
+            menu_button.y + menu_button.h + 34.0,
+            17,
+            LIGHTGRAY,
+        );
+    }
 }
 
 fn draw_centered_text(text: &str, center_x: f32, y: f32, font_size: u16, color: Color) {
@@ -512,15 +594,16 @@ fn draw_setup_button(rect: Rect, label: &str) {
         rect.y,
         rect.w,
         rect.h,
-        Color::new(0.13, 0.4, 0.28, 1.0),
+        Color::new(0.16, 0.48, 0.32, 1.0),
     );
     draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 3.0, GOLD);
-    let text_width = measure_text(label, None, 24, 1.0).width;
+    let font_size = if rect.h >= 64.0 { 22 } else { 24 };
+    let text_width = measure_text(label, None, font_size, 1.0).width;
     draw_text(
         label,
         rect.x + (rect.w - text_width) / 2.0,
-        rect.y + rect.h / 2.0 + 9.0,
-        24.0,
+        rect.y + rect.h / 2.0 + f32::from(font_size) * 0.35,
+        f32::from(font_size),
         WHITE,
     );
 }
@@ -529,40 +612,60 @@ fn draw_screen(game: &Game, cursor: usize, selected: &[usize], status: &str) {
     clear_background(TABLE_COLOR);
     let width = screen_width();
     let height = screen_height();
+    let compact = compact_layout(width, height);
 
-    draw_text("VÄNDTIA", 28.0, 42.0, 34.0, GOLD);
-    draw_text(
-        format!(
-            "DRAGHÖG: {} kort     SPELHÖG: {} kort",
-            game.draw_pile_size(),
-            game.pile().len()
-        ),
-        240.0,
-        38.0,
-        22.0,
-        WHITE,
-    );
-    draw_text(
-        "FÄRGER: C=KLÖVER  D=RUTER  H=HJÄRTER  S=SPADER",
-        28.0,
-        61.0,
-        15.0,
-        LIGHTGRAY,
-    );
+    if compact {
+        draw_text("VÄNDTIA", 12.0, 28.0, 20.0, GOLD);
+    } else {
+        draw_text("VÄNDTIA", 28.0, 42.0, 34.0, GOLD);
+        draw_text(
+            format!(
+                "DRAGHÖG: {} kort     SPELHÖG: {} kort",
+                game.draw_pile_size(),
+                game.pile().len()
+            ),
+            240.0,
+            38.0,
+            22.0,
+            WHITE,
+        );
+        draw_text(
+            "FÄRGER: C=KLÖVER  D=RUTER  H=HJÄRTER  S=SPADER",
+            28.0,
+            61.0,
+            15.0,
+            LIGHTGRAY,
+        );
+    }
     let current = if game.current_player() == 0 {
         "Din tur".to_owned()
     } else {
         format!("Bot {}:s tur", game.current_player() + 1)
     };
-    draw_text(&current, width - 210.0, 38.0, 22.0, SKYBLUE);
+    draw_text(
+        &current,
+        if compact {
+            width - 110.0
+        } else {
+            width - 210.0
+        },
+        if compact { 28.0 } else { 38.0 },
+        if compact { 16.0 } else { 22.0 },
+        SKYBLUE,
+    );
 
-    draw_player_tables(game, width);
-    draw_pile(game, width, height);
+    draw_player_tables(game, width, height);
+    draw_pile(game, width, height, compact);
     draw_player_cards(game, cursor, selected, width, height);
-    draw_controls(game, status, width, height);
+    draw_controls(game, status, width, height, compact);
 }
 
-fn draw_player_tables(game: &Game, width: f32) {
+fn draw_player_tables(game: &Game, width: f32, height: f32) {
+    if compact_layout(width, height) {
+        draw_compact_player_tables(game, width);
+        return;
+    }
+
     let columns = opponent_columns(game.player_count(), width);
     for player in 0..game.player_count() {
         let x = 28.0 + (player % columns) as f32 * 234.0;
@@ -605,6 +708,62 @@ fn draw_player_tables(game: &Game, width: f32) {
     }
 }
 
+fn draw_compact_player_tables(game: &Game, width: f32) {
+    let columns = ((width / 170.0).floor() as usize)
+        .max(1)
+        .min(game.player_count());
+    let gap = 6.0;
+    let cell_width = (width - 16.0 - gap * (columns - 1) as f32) / columns as f32;
+    let cell_height = 42.0;
+
+    for player in 0..game.player_count() {
+        let column = player % columns;
+        let row = player / columns;
+        let x = 8.0 + column as f32 * (cell_width + gap);
+        let y = 42.0 + row as f32 * (cell_height + gap);
+        let border = if player == game.current_player() {
+            GOLD
+        } else {
+            DARKGREEN
+        };
+        draw_rectangle(x, y, cell_width, cell_height, PANEL_COLOR);
+        draw_rectangle_lines(x, y, cell_width, cell_height, 2.0, border);
+
+        let label = if player == 0 {
+            "DU".to_owned()
+        } else {
+            format!("BOT {}", player + 1)
+        };
+        draw_text(
+            format!("{label}  {}", game.hand_count(player).unwrap_or(0)),
+            x + 7.0,
+            y + 16.0,
+            12.0,
+            WHITE,
+        );
+
+        for (index, card) in game
+            .face_up(player)
+            .unwrap_or(&[])
+            .iter()
+            .copied()
+            .take(3)
+            .enumerate()
+        {
+            card_renderer::draw_face(
+                Rect::new(
+                    x + cell_width - 32.0 * (index + 1) as f32,
+                    y + 4.0,
+                    27.0,
+                    34.0,
+                ),
+                card,
+                CardStyle::default(),
+            );
+        }
+    }
+}
+
 fn opponent_columns(player_count: usize, width: f32) -> usize {
     let available_width = (width - 56.0).max(220.0);
     let columns = ((available_width + 14.0) / 234.0).floor() as usize;
@@ -615,25 +774,29 @@ fn table_stack_layers(face_up: &[Card], face_down_count: usize) -> [(bool, Optio
     std::array::from_fn(|index| (index < face_down_count, face_up.get(index).copied()))
 }
 
-fn draw_pile(game: &Game, width: f32, height: f32) {
+fn draw_pile(game: &Game, width: f32, height: f32, compact: bool) {
     let pile = pile_card_rect(width, height);
     let center_x = pile.x + pile.w / 2.0;
-    draw_text(
-        "SPELHÖG - KLICKA FÖR ATT SPELA",
-        center_x - 145.0,
-        pile.y - 14.0,
-        18.0,
-        LIGHTGRAY,
-    );
+    if !compact {
+        draw_centered_text(
+            "SPELHÖG - KLICKA FÖR ATT SPELA",
+            center_x,
+            pile.y - 14.0,
+            18,
+            LIGHTGRAY,
+        );
+    }
     if let Some(card) = game.pile().last() {
         card_renderer::draw_face(pile, *card, CardStyle::default());
-        draw_text(
-            format!("{} kort i spelhögen", game.pile().len()),
-            center_x - 75.0,
-            pile.y + CARD_HEIGHT + 22.0,
-            18.0,
-            WHITE,
-        );
+        if !compact {
+            draw_centered_text(
+                &format!("{} kort i spelhögen", game.pile().len()),
+                center_x,
+                pile.y + pile.h + 22.0,
+                18,
+                WHITE,
+            );
+        }
     } else {
         draw_rectangle(
             pile.x,
@@ -648,17 +811,26 @@ fn draw_pile(game: &Game, width: f32, height: f32) {
 }
 
 fn pile_card_rect(width: f32, height: f32) -> Rect {
-    let center_x = (width * 0.84).clamp(CARD_WIDTH / 2.0 + 12.0, width - CARD_WIDTH / 2.0 - 12.0);
-    let center_y = height * 0.36;
+    let compact = compact_layout(width, height);
+    let card_height = card_height_for_screen(width, height);
+    let card_width = card_height * CARD_WIDTH / CARD_HEIGHT;
+    let center_x = (width * 0.82).clamp(card_width / 2.0 + 12.0, width - card_width / 2.0 - 12.0);
+    let center_y = if compact {
+        height * 0.40
+    } else {
+        height * 0.36
+    };
     Rect::new(
-        center_x - CARD_WIDTH / 2.0,
-        center_y - 48.0,
-        CARD_WIDTH,
-        CARD_HEIGHT,
+        center_x - card_width / 2.0,
+        center_y - card_height * 0.34,
+        card_width,
+        card_height,
     )
 }
 
 fn draw_player_cards(game: &Game, cursor: usize, selected: &[usize], width: f32, height: f32) {
+    let compact = compact_layout(width, height);
+    let card_height = card_height_for_screen(width, height);
     let phase = game.player_phase(0).unwrap_or(PlayerPhase::FaceDown);
     let cards = player_cards(game, phase);
     let count = player_card_count(game, phase);
@@ -667,9 +839,15 @@ fn draw_player_cards(game: &Game, cursor: usize, selected: &[usize], width: f32,
         PlayerPhase::FaceUp => "DINA ÖPPNA KORT",
         PlayerPhase::FaceDown => "DINA BLINDA KORT",
     };
-    let start_y = height - CARD_HEIGHT - 154.0;
-    draw_text(title, 28.0, start_y - 16.0, 20.0, GOLD);
-    let (card_width, card_gap, start_x) = card_layout(count, width);
+    let start_y = player_cards_y(width, height, card_height);
+    draw_text(
+        title,
+        if compact { 12.0 } else { 28.0 },
+        start_y - if compact { 10.0 } else { 16.0 },
+        if compact { 14.0 } else { 20.0 },
+        GOLD,
+    );
+    let (card_width, card_gap, start_x) = card_layout(count, width, card_height, compact);
     let display_order = player_display_order(game, phase);
 
     for (index, card_index) in display_order.iter().copied().enumerate() {
@@ -677,17 +855,17 @@ fn draw_player_cards(game: &Game, cursor: usize, selected: &[usize], width: f32,
         let is_selected = selected.contains(&card_index);
         let y = start_y;
         if phase == PlayerPhase::FaceDown {
-            card_renderer::draw_back(Rect::new(x, y, card_width, CARD_HEIGHT), index == cursor);
+            card_renderer::draw_back(Rect::new(x, y, card_width, card_height), index == cursor);
             draw_text(
                 format!("{}", index + 1),
                 x + card_width / 2.0 - 5.0,
-                y + CARD_HEIGHT + 19.0,
-                16.0,
+                y + card_height + if compact { 16.0 } else { 19.0 },
+                if compact { 12.0 } else { 16.0 },
                 LIGHTGRAY,
             );
         } else if let Some(card) = cards.get(card_index) {
             card_renderer::draw_face(
-                Rect::new(x, y, card_width, CARD_HEIGHT),
+                Rect::new(x, y, card_width, card_height),
                 *card,
                 CardStyle {
                     selected: is_selected,
@@ -697,8 +875,8 @@ fn draw_player_cards(game: &Game, cursor: usize, selected: &[usize], width: f32,
             draw_text(
                 format!("{}", index + 1),
                 x + card_width / 2.0 - 5.0,
-                y + CARD_HEIGHT + 19.0,
-                16.0,
+                y + card_height + if compact { 16.0 } else { 19.0 },
+                if compact { 12.0 } else { 16.0 },
                 WHITE,
             );
         }
@@ -716,6 +894,28 @@ struct ActionButtonRects {
 }
 
 fn action_button_rects(width: f32, height: f32) -> ActionButtonRects {
+    if compact_layout(width, height) {
+        let margin = 10.0;
+        let gap = 6.0;
+        let button_width = (width - margin * 2.0 - gap * 2.0) / 3.0;
+        let y = height - COMPACT_ACTION_BUTTON_HEIGHT - 24.0;
+        return ActionButtonRects {
+            play: Rect::new(margin, y, button_width, COMPACT_ACTION_BUTTON_HEIGHT),
+            draw: Rect::new(
+                margin + button_width + gap,
+                y,
+                button_width,
+                COMPACT_ACTION_BUTTON_HEIGHT,
+            ),
+            pickup: Rect::new(
+                margin + (button_width + gap) * 2.0,
+                y,
+                button_width,
+                COMPACT_ACTION_BUTTON_HEIGHT,
+            ),
+        };
+    }
+
     let scale = ((width - 24.0) / 464.0).clamp(0.0, 1.0);
     let play_width = 180.0 * scale;
     let other_width = 130.0 * scale;
@@ -748,7 +948,10 @@ fn draw_action_buttons(
     selected_count: usize,
 ) {
     let buttons = action_button_rects(width, height);
-    let play_text = if selected_count == 0 {
+    let compact = compact_layout(width, height);
+    let play_text = if compact {
+        "SPELA"
+    } else if selected_count == 0 {
         "MARKERA KORT"
     } else {
         "SPELA MARKERADE"
@@ -756,23 +959,39 @@ fn draw_action_buttons(
     draw_button(buttons.play, play_text, selected_count > 0);
 
     if phase == PlayerPhase::Hand && game.draw_pile_size() > 0 {
-        draw_button(buttons.draw, "DRA + SPELA", true);
+        draw_button(
+            buttons.draw,
+            if compact { "DRA" } else { "DRA + SPELA" },
+            true,
+        );
     } else {
-        draw_button(buttons.draw, "SLUT PÅ KORT", false);
+        draw_button(
+            buttons.draw,
+            if compact { "DRA" } else { "SLUT PÅ KORT" },
+            false,
+        );
     }
 
     if !game.pile().is_empty() && phase != PlayerPhase::FaceDown {
-        draw_button(buttons.pickup, "PLOCKA UPP", true);
+        draw_button(
+            buttons.pickup,
+            if compact { "PLOCKA" } else { "PLOCKA UPP" },
+            true,
+        );
     } else {
-        draw_button(buttons.pickup, "PLOCKA UPP", false);
+        draw_button(
+            buttons.pickup,
+            if compact { "PLOCKA" } else { "PLOCKA UPP" },
+            false,
+        );
     }
 }
 
 fn draw_button(rect: Rect, label: &str, enabled: bool) {
     let fill = if enabled {
-        Color::new(0.13, 0.4, 0.28, 1.0)
+        Color::new(0.18, 0.55, 0.35, 1.0)
     } else {
-        Color::new(0.16, 0.19, 0.18, 1.0)
+        Color::new(0.12, 0.19, 0.16, 1.0)
     };
     draw_rectangle(rect.x, rect.y, rect.w, rect.h, fill);
     draw_rectangle_lines(
@@ -780,14 +999,20 @@ fn draw_button(rect: Rect, label: &str, enabled: bool) {
         rect.y,
         rect.w,
         rect.h,
-        2.0,
+        if enabled { 3.0 } else { 2.0 },
         if enabled { GOLD } else { DARKGRAY },
     );
-    let text_width = measure_text(label, None, 16, 1.0).width;
-    let font_size = (16.0 * (rect.w * 0.9 / text_width)).clamp(8.0, 16.0);
+    let base_font_size: u16 = if rect.h >= COMPACT_ACTION_BUTTON_HEIGHT {
+        20
+    } else {
+        16
+    };
+    let text_width = measure_text(label, None, base_font_size, 1.0).width;
+    let font_size = (f32::from(base_font_size) * (rect.w * 0.9 / text_width))
+        .clamp(14.0, f32::from(base_font_size));
     draw_text(
         label,
-        rect.x + (rect.w - text_width * font_size / 16.0) / 2.0,
+        rect.x + (rect.w - text_width * font_size / f32::from(base_font_size)) / 2.0,
         rect.y + (rect.h + font_size * 0.62) / 2.0,
         font_size,
         if enabled { WHITE } else { LIGHTGRAY },
@@ -815,26 +1040,50 @@ fn pile_target_contains(x: f32, y: f32, width: f32, height: f32) -> bool {
     x >= pile.x && x <= pile.x + pile.w && y >= pile.y && y <= pile.y + pile.h
 }
 
-fn card_layout(count: usize, screen_width: f32) -> (f32, f32, f32) {
-    let available_width = (screen_width - 44.0).max(1.0);
+fn card_layout(
+    count: usize,
+    screen_width: f32,
+    card_height: f32,
+    compact: bool,
+) -> (f32, f32, f32) {
+    let available_width = (screen_width - if compact { 24.0 } else { 44.0 }).max(1.0);
     if count == 0 {
-        return (CARD_WIDTH, CARD_GAP, 22.0);
+        return (card_height * CARD_WIDTH / CARD_HEIGHT, CARD_GAP, 12.0);
     }
     let count_f = count as f32;
-    let card_width = CARD_WIDTH.min(available_width);
-    let gap = if count > 1 && count_f * (card_width + CARD_GAP) - CARD_GAP > available_width {
-        (available_width - card_width * count_f) / (count_f - 1.0)
-    } else if count > 1 {
-        CARD_GAP
-    } else {
-        0.0
-    };
+    let natural_width = card_height * CARD_WIDTH / CARD_HEIGHT;
+    let card_width = natural_width.min(available_width);
+    let preferred_gap = CARD_GAP * card_height / CARD_HEIGHT;
+    let gap =
+        if count > 1 && count_f * (card_width + preferred_gap) - preferred_gap > available_width {
+            (available_width - card_width * count_f) / (count_f - 1.0)
+        } else if count > 1 {
+            preferred_gap
+        } else {
+            0.0
+        };
     let total_width = count_f * card_width + (count_f - 1.0).max(0.0) * gap;
-    let start_x = ((screen_width - total_width) / 2.0).max(8.0);
+    let start_x = ((screen_width - total_width) / 2.0).max(12.0);
     (card_width, gap, start_x)
 }
 
-fn draw_controls(game: &Game, status: &str, width: f32, height: f32) {
+fn draw_controls(game: &Game, status: &str, width: f32, height: f32, compact: bool) {
+    if compact {
+        if status != INITIAL_STATUS && status.starts_with("Kunde inte") {
+            let font_size = 12;
+            let text_width = measure_text(status, None, font_size, 1.0).width;
+            let scale = ((width - 16.0) / text_width).min(1.0);
+            let fitted_width = text_width * scale;
+            draw_text(
+                status,
+                (width - fitted_width) / 2.0,
+                action_button_rects(width, height).play.y - 8.0,
+                f32::from(font_size) * scale,
+                YELLOW,
+            );
+        }
+        return;
+    }
     let panel_y = height - 43.0;
     draw_rectangle(0.0, panel_y - 6.0, width, 52.0, PANEL_COLOR);
     draw_text(status, 20.0, panel_y + 12.0, 18.0, YELLOW);
@@ -849,6 +1098,31 @@ fn draw_controls(game: &Game, status: &str, width: f32, height: f32) {
         PlayerPhase::FaceDown => "PILTANGENTER: FLYTTA  RETUR: VÄND  Q: AVSLUTA",
     };
     draw_text(controls, 20.0, panel_y + 34.0, 14.0, LIGHTGRAY);
+}
+
+fn compact_layout(width: f32, height: f32) -> bool {
+    width < 700.0 || height < 520.0
+}
+
+fn card_height_for_screen(width: f32, height: f32) -> f32 {
+    if compact_layout(width, height) {
+        compact_card_height(height)
+    } else {
+        (CARD_HEIGHT * height / 760.0).clamp(120.0, CARD_HEIGHT)
+    }
+}
+
+fn compact_card_height(height: f32) -> f32 {
+    (height * 0.24).clamp(86.0, 128.0)
+}
+
+fn player_cards_y(width: f32, height: f32, card_height: f32) -> f32 {
+    let bottom_space = if compact_layout(width, height) {
+        if height < 520.0 { 130.0 } else { 190.0 }
+    } else {
+        154.0
+    };
+    height - card_height - bottom_space
 }
 
 fn player_display_order(game: &Game, phase: PlayerPhase) -> Vec<usize> {
@@ -901,12 +1175,14 @@ fn card_at_position(
     width: f32,
     height: f32,
 ) -> Option<usize> {
-    let (card_width, gap, start_x) = card_layout(count, width);
-    let start_y = height - CARD_HEIGHT - 154.0;
+    let compact = compact_layout(width, height);
+    let card_height = card_height_for_screen(width, height);
+    let (card_width, gap, start_x) = card_layout(count, width, card_height, compact);
+    let start_y = player_cards_y(width, height, card_height);
     (0..count).rev().find(|index| {
         let x = start_x + *index as f32 * (card_width + gap);
         let y = start_y;
-        mouse_x >= x && mouse_x <= x + card_width && mouse_y >= y && mouse_y <= y + CARD_HEIGHT
+        mouse_x >= x && mouse_x <= x + card_width && mouse_y >= y && mouse_y <= y + card_height
     })
 }
 
@@ -1007,9 +1283,9 @@ mod tests {
         let count = 30;
         let width = 800.0;
         let height = 760.0;
-        let (card_width, gap, start_x) = card_layout(count, width);
+        let (card_width, gap, start_x) = card_layout(count, width, CARD_HEIGHT, false);
         let step = card_width + gap;
-        let y = height - CARD_HEIGHT - 154.0 + CARD_HEIGHT / 2.0;
+        let y = player_cards_y(width, height, CARD_HEIGHT) + CARD_HEIGHT / 2.0;
 
         assert!(step > 0.0);
         for index in 0..count {
@@ -1061,6 +1337,84 @@ mod tests {
     }
 
     #[test]
+    fn compact_layout_gives_mobile_controls_and_cards_readable_dimensions() {
+        for (width, height) in [(390.0, 844.0), (844.0, 390.0)] {
+            assert!(compact_layout(width, height));
+
+            let buttons = action_button_rects(width, height);
+            assert_eq!(buttons.play.h, COMPACT_ACTION_BUTTON_HEIGHT);
+            assert_eq!(buttons.draw.h, COMPACT_ACTION_BUTTON_HEIGHT);
+            assert_eq!(buttons.pickup.h, COMPACT_ACTION_BUTTON_HEIGHT);
+            assert!(buttons.play.w >= 80.0);
+            assert!(buttons.draw.w >= 80.0);
+            assert!(buttons.pickup.w >= 80.0);
+
+            let card_height = card_height_for_screen(width, height);
+            assert!(card_height >= 86.0);
+            let (card_width, _, _) = card_layout(3, width, card_height, true);
+            assert!(card_width >= 60.0);
+            assert!(
+                player_cards_y(width, height, card_height) + card_height + 16.0 < buttons.play.y
+            );
+        }
+    }
+
+    #[test]
+    fn setup_controls_fit_narrow_mobile_widths() {
+        for width in [280.0, 320.0, 390.0] {
+            let (minus, plus) = setup_player_buttons(width, 700.0);
+            let start = setup_start_button(width, 700.0);
+
+            assert!(minus.x >= 0.0);
+            assert!(plus.x + plus.w <= width);
+            assert!(minus.w >= 64.0);
+            assert!(start.x >= 0.0);
+            assert!(start.x + start.w <= width);
+            assert!(start.h >= 64.0);
+        }
+    }
+
+    #[test]
+    fn setup_screen_fits_short_landscape_viewports() {
+        let height = 390.0;
+        let center_y = setup_player_selector_y(height);
+        let (_, plus) = setup_player_buttons(844.0, height);
+        let start = setup_start_button(844.0, height);
+
+        assert!(plus.y + plus.h < center_y + 50.0);
+        assert!(center_y + 50.0 < start.y);
+    }
+
+    #[test]
+    fn card_hit_regions_follow_responsive_card_dimensions() {
+        let (width, height) = (390.0, 844.0);
+        let card_height = card_height_for_screen(width, height);
+        let (card_width, gap, start_x) = card_layout(3, width, card_height, true);
+        let card_y = player_cards_y(width, height, card_height);
+
+        assert_eq!(
+            card_at_position(
+                start_x + card_width / 2.0,
+                card_y + card_height / 2.0,
+                3,
+                width,
+                height,
+            ),
+            Some(0)
+        );
+        assert_eq!(
+            card_at_position(
+                start_x + card_width + gap / 2.0,
+                card_y + card_height / 2.0,
+                3,
+                width,
+                height,
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn opponent_grid_keeps_all_players_in_the_reserved_area() {
         assert_eq!(opponent_columns(4, 990.0), 4);
         assert_eq!(opponent_columns(4, 1100.0), 4);
@@ -1075,7 +1429,7 @@ mod tests {
         let start = setup_start_button(1100.0, 760.0);
         assert_eq!(minus.y, plus.y);
         assert!(minus.y + minus.h < start.y);
-        assert!(76.0 + 140.0 < 760.0 - CARD_HEIGHT - 154.0);
+        assert!(76.0 + 140.0 < player_cards_y(1100.0, 760.0, CARD_HEIGHT));
     }
 
     #[test]
