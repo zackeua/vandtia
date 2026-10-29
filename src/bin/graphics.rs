@@ -742,24 +742,25 @@ fn draw_compact_player_tables(game: &Game, width: f32) {
             WHITE,
         );
 
-        for (index, card) in game
-            .face_up(player)
-            .unwrap_or(&[])
-            .iter()
-            .copied()
-            .take(3)
-            .enumerate()
+        for (index, (has_face_down, face_up_card)) in table_stack_layers(
+            game.face_up(player).unwrap_or(&[]),
+            game.face_down_count(player).unwrap_or(0),
+        )
+        .into_iter()
+        .enumerate()
         {
-            card_renderer::draw_face(
-                Rect::new(
-                    x + cell_width - 32.0 * (index + 1) as f32,
-                    y + 4.0,
-                    27.0,
-                    34.0,
-                ),
-                card,
-                CardStyle::default(),
+            let card_rect = Rect::new(
+                x + cell_width - 32.0 * (index + 1) as f32,
+                y + 4.0,
+                27.0,
+                34.0,
             );
+            if has_face_down {
+                card_renderer::draw_back(card_rect, false);
+            }
+            if let Some(card) = face_up_card {
+                card_renderer::draw_face(card_rect, card, CardStyle::default());
+            }
         }
     }
 }
@@ -814,11 +815,17 @@ fn pile_card_rect(width: f32, height: f32) -> Rect {
     let compact = compact_layout(width, height);
     let card_height = card_height_for_screen(width, height);
     let card_width = card_height * CARD_WIDTH / CARD_HEIGHT;
-    let center_x = (width * 0.82).clamp(card_width / 2.0 + 12.0, width - card_width / 2.0 - 12.0);
-    let center_y = if compact {
-        height * 0.40
+    let (center_x, center_y) = if compact && height < 520.0 {
+        (
+            card_width / 2.0 + 12.0,
+            player_cards_y(width, height, card_height) + card_height / 2.0,
+        )
+    } else if compact {
+        let grid_bottom = compact_player_grid_bottom(width, 5);
+        let center_y = (height * 0.28).max(grid_bottom + 8.0 + card_height / 2.0);
+        (width * 0.82, center_y)
     } else {
-        height * 0.36
+        (width * 0.82, height * 0.36)
     };
     Rect::new(
         center_x - card_width / 2.0,
@@ -840,14 +847,10 @@ fn draw_player_cards(game: &Game, cursor: usize, selected: &[usize], width: f32,
         PlayerPhase::FaceDown => "DINA BLINDA KORT",
     };
     let start_y = player_cards_y(width, height, card_height);
-    draw_text(
-        title,
-        if compact { 12.0 } else { 28.0 },
-        start_y - if compact { 10.0 } else { 16.0 },
-        if compact { 14.0 } else { 20.0 },
-        GOLD,
-    );
-    let (card_width, card_gap, start_x) = card_layout(count, width, card_height, compact);
+    if !compact {
+        draw_text(title, 28.0, start_y - 16.0, 20.0, GOLD);
+    }
+    let (card_width, card_gap, start_x) = card_layout(count, width, height, card_height, compact);
     let display_order = player_display_order(game, phase);
 
     for (index, card_index) in display_order.iter().copied().enumerate() {
@@ -1043,15 +1046,22 @@ fn pile_target_contains(x: f32, y: f32, width: f32, height: f32) -> bool {
 fn card_layout(
     count: usize,
     screen_width: f32,
+    screen_height: f32,
     card_height: f32,
     compact: bool,
 ) -> (f32, f32, f32) {
-    let available_width = (screen_width - if compact { 24.0 } else { 44.0 }).max(1.0);
+    let natural_width = card_height * CARD_WIDTH / CARD_HEIGHT;
+    let reserve_left = if compact && screen_height < 520.0 {
+        natural_width + 36.0
+    } else {
+        0.0
+    };
+    let available_width =
+        (screen_width - reserve_left - if compact { 24.0 } else { 44.0 }).max(1.0);
     if count == 0 {
-        return (card_height * CARD_WIDTH / CARD_HEIGHT, CARD_GAP, 12.0);
+        return (natural_width, CARD_GAP, reserve_left + 12.0);
     }
     let count_f = count as f32;
-    let natural_width = card_height * CARD_WIDTH / CARD_HEIGHT;
     let card_width = natural_width.min(available_width);
     let preferred_gap = CARD_GAP * card_height / CARD_HEIGHT;
     let gap =
@@ -1063,8 +1073,16 @@ fn card_layout(
             0.0
         };
     let total_width = count_f * card_width + (count_f - 1.0).max(0.0) * gap;
-    let start_x = ((screen_width - total_width) / 2.0).max(12.0);
+    let start_x = (reserve_left + (screen_width - reserve_left - total_width) / 2.0).max(12.0);
     (card_width, gap, start_x)
+}
+
+fn compact_player_grid_bottom(width: f32, player_count: usize) -> f32 {
+    let columns = ((width / 170.0).floor() as usize)
+        .max(1)
+        .min(player_count.max(1));
+    let rows = player_count.div_ceil(columns);
+    42.0 + rows as f32 * 42.0 + rows.saturating_sub(1) as f32 * 6.0
 }
 
 fn draw_controls(game: &Game, status: &str, width: f32, height: f32, compact: bool) {
@@ -1118,7 +1136,7 @@ fn compact_card_height(height: f32) -> f32 {
 
 fn player_cards_y(width: f32, height: f32, card_height: f32) -> f32 {
     let bottom_space = if compact_layout(width, height) {
-        if height < 520.0 { 130.0 } else { 190.0 }
+        if height < 520.0 { 108.0 } else { 190.0 }
     } else {
         154.0
     };
@@ -1177,7 +1195,7 @@ fn card_at_position(
 ) -> Option<usize> {
     let compact = compact_layout(width, height);
     let card_height = card_height_for_screen(width, height);
-    let (card_width, gap, start_x) = card_layout(count, width, card_height, compact);
+    let (card_width, gap, start_x) = card_layout(count, width, height, card_height, compact);
     let start_y = player_cards_y(width, height, card_height);
     (0..count).rev().find(|index| {
         let x = start_x + *index as f32 * (card_width + gap);
@@ -1283,7 +1301,7 @@ mod tests {
         let count = 30;
         let width = 800.0;
         let height = 760.0;
-        let (card_width, gap, start_x) = card_layout(count, width, CARD_HEIGHT, false);
+        let (card_width, gap, start_x) = card_layout(count, width, height, CARD_HEIGHT, false);
         let step = card_width + gap;
         let y = player_cards_y(width, height, CARD_HEIGHT) + CARD_HEIGHT / 2.0;
 
@@ -1351,7 +1369,7 @@ mod tests {
 
             let card_height = card_height_for_screen(width, height);
             assert!(card_height >= 86.0);
-            let (card_width, _, _) = card_layout(3, width, card_height, true);
+            let (card_width, _, _) = card_layout(3, width, height, card_height, true);
             assert!(card_width >= 60.0);
             assert!(
                 player_cards_y(width, height, card_height) + card_height + 16.0 < buttons.play.y
@@ -1389,7 +1407,7 @@ mod tests {
     fn card_hit_regions_follow_responsive_card_dimensions() {
         let (width, height) = (390.0, 844.0);
         let card_height = card_height_for_screen(width, height);
-        let (card_width, gap, start_x) = card_layout(3, width, card_height, true);
+        let (card_width, gap, start_x) = card_layout(3, width, height, card_height, true);
         let card_y = player_cards_y(width, height, card_height);
 
         assert_eq!(
@@ -1476,6 +1494,37 @@ mod tests {
             table_stack_layers(&[], 2),
             [(true, None), (true, None), (false, None)]
         );
+    }
+
+    #[test]
+    fn compact_player_tables_keep_face_down_cards_visible() {
+        assert_eq!(
+            table_stack_layers(&[], 3),
+            [(true, None), (true, None), (true, None)]
+        );
+    }
+
+    #[test]
+    fn compact_portrait_pile_stays_between_player_tables_and_hand() {
+        let (width, height) = (390.0, 711.0);
+        let pile = pile_card_rect(width, height);
+        let cards_y = player_cards_y(width, height, card_height_for_screen(width, height));
+
+        assert!(pile.y >= compact_player_grid_bottom(width, 5));
+        assert!(pile.y + pile.h < cards_y);
+    }
+
+    #[test]
+    fn compact_landscape_pile_sits_left_of_the_hand() {
+        let (width, height) = (844.0, 390.0);
+        let pile = pile_card_rect(width, height);
+        let card_height = card_height_for_screen(width, height);
+        let (card_width, _, start_x) = card_layout(3, width, height, card_height, true);
+
+        assert!(pile.x + pile.w < start_x);
+        assert!(pile.y >= 0.0);
+        assert!(pile.y + pile.h <= height);
+        assert!(card_width >= 60.0);
     }
 
     #[test]
